@@ -1,35 +1,34 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 
-export const dynamic = "force-dynamic"; export const revalidate = 0;
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+const TZ = "America/New_York";
 
 export async function GET() {
-  // bring all runs with current team
+  // Only include runs created "today" in America/New_York.
+  // Order fastest → slowest, then by creation time.
+  // Compute a per-user index (1,2,3,...) for today using row_number().
   const rows = await sql/*sql*/`
-    select r.id, r.username, u.team, r.duration_ms, r.created_at
-      from runs r
-      left join users u on lower(u.username)=lower(r.username)
+    select
+      r.id,
+      r.username,
+      coalesce(u.team, 'Bench') as team,
+      r.duration_ms,
+      r.created_at,
+      row_number() over (
+        partition by lower(r.username)
+        order by r.duration_ms asc, r.created_at asc
+      ) as "index"
+    from runs r
+    left join users u on lower(u.username) = lower(r.username)
+    where (r.created_at at time zone ${TZ})::date = (now() at time zone ${TZ})::date
+    order by r.duration_ms asc, r.created_at asc
   `;
 
-  // sort fastest → slowest
-  rows.sort((a: any, b: any) => (a.duration_ms ?? 0) - (b.duration_ms ?? 0));
-
-  // per-user index
-  const counters: Record<string, number> = {};
-  const out = rows.map((r: any) => {
-    const key = String(r.username || "").trim().toLowerCase();
-    counters[key] = (counters[key] ?? 0) + 1;
-    return {
-      id: r.id,
-      index: counters[key],
-      username: r.username,
-      team: r.team ?? "Bench",
-      duration_ms: r.duration_ms,
-      created_at: r.created_at,
-    };
-  });
-
-  return NextResponse.json({ rows: out }, {
-    headers: { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" },
-  });
+  return NextResponse.json(
+    { rows },
+    { headers: { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" } }
+  );
 }
