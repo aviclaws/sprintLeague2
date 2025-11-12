@@ -1,13 +1,11 @@
 import { NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
-import { getUsers } from "@/lib/users";
+import { listUsers } from "@/lib/users";
+import { requireRole } from "@/lib/auth"; // your existing role-check
+
+export const dynamic = "force-dynamic"; export const revalidate = 0;
 
 export async function GET() {
-  try {
-    await requireRole(["coach", "admin"]);
-    const users = getUsers().map(u => ({ username: u.username, role: u.role, team: u.team ?? null }));
-    return NextResponse.json({ users });
-  } catch (err: any) {
-    return NextResponse.json({ error: err?.message ?? "unauthorized", users: [] }, { status: 401 });
-  }
+  await requireRole(["coach"]);        // or ["coach","player"] if you want players to view
+  const users = await listUsers();
+  return NextResponse.json({ users });
 }

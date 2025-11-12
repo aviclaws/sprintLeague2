@@ -1,37 +1,55 @@
 // lib/users.ts
-import fs from "fs";
-import path from "path";
+import { getPool } from "./db";
 
-export type Role = "player" | "coach" | "admin";
-export type Team = "Blue" | "White";
+export type Role = "player" | "coach";
+export type Team = "Blue" | "White" | null;
 
-export type AppUser = {
-  username: string;
-  password_hash: string;   // bcrypt hash (or plaintext if you insist)
-  role: Role;
-  team?: Team;
-};
-
-type UsersFile = { users: AppUser[] };
-
-function usersPath() {
-  return path.join(process.cwd(), "users.json");
-}
-
-export function getUsers(): AppUser[] {
-  const raw = fs.readFileSync(usersPath(), "utf8");
-  const data = JSON.parse(raw) as UsersFile;
-  return data.users;
-}
-
-export function findUser(username: string) {
-  return getUsers().find(
-    u => u.username.toLowerCase() === username.toLowerCase()
+export async function listUsers() {
+  const db = getPool();
+  const { rows } = await db.query(
+    `select username, role, team from users order by username asc`
   );
+  return rows as { username: string; role: Role; team: Team }[];
 }
 
-// For local/dev only: overwrite users.json to change teams, etc.
-export function saveUsers(users: AppUser[]) {
-  const data: UsersFile = { users };
-  fs.writeFileSync(usersPath(), JSON.stringify(data, null, 2));
+export async function getUserByUsername(username: string) {
+  const db = getPool();
+  const { rows } = await db.query(
+    `select username, password_hash, role, team from users where lower(username)=lower($1)`,
+    [username]
+  );
+  return rows[0] as
+    | { username: string; password_hash: string; role: Role; team: Team }
+    | undefined;
+}
+
+export async function updateUser(
+  username: string,
+  changes: { role?: Role; team?: "Blue" | "White" | null }
+) {
+  const db = getPool();
+  if (changes.role !== undefined && changes.team !== undefined) {
+    await db.query(
+      `update users set role=$2, team=$3 where lower(username)=lower($1)`,
+      [username, changes.role, changes.team]
+    );
+  } else if (changes.role !== undefined) {
+    await db.query(
+      `update users set role=$2 where lower(username)=lower($1)`,
+      [username, changes.role]
+    );
+  } else if (changes.team !== undefined) {
+    await db.query(
+      `update users set team=$2 where lower(username)=lower($1)`,
+      [username, changes.team]
+    );
+  }
+}
+
+export async function setPasswordHash(username: string, password_hash: string) {
+  const db = getPool();
+  await db.query(
+    `update users set password_hash=$2 where lower(username)=lower($1)`,
+    [username, password_hash]
+  );
 }
