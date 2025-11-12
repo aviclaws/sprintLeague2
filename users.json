@@ -1,18 +1,92 @@
 {
   "users": [
-    { "username": "avi", "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u", "role": "coach" },
-    { "username": "danny",  "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u", "role": "player", "team": "Blue" },
-    { "username": "corky",    "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u", "role": "player", "team": "White" },
-    { "username": "sammy",    "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u", "role": "player", "team": "blue" },
-    { "username": "dz",    "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u", "role": "player", "team": "White" },
-    { "username": "jj",    "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u", "role": "player", "team": "blue" },
-    { "username": "swan",    "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u", "role": "player", "team": "White" },
-    { "username": "itai",    "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u", "role": "player", "team": "blue" },
-    { "username": "ezra",    "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u", "role": "player", "team": "White" },
-    { "username": "yak",    "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u", "role": "player", "team": "blue" },
-    { "username": "modry",    "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u", "role": "player", "team": "White" },
-    { "username": "phil",    "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u", "role": "player", "team": "blue" },
-    { "username": "gabs",    "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u", "role": "player", "team": "White" },
-    { "username": "sauce",    "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u", "role": "player", "team": "White" }
+    {
+      "username": "avi",
+      "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u",
+      "role": "coach"
+    },
+    {
+      "username": "danny",
+      "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u",
+      "role": "player",
+      "team": "Blue"
+    },
+    {
+      "username": "corky",
+      "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u",
+      "role": "player",
+      "team": "White"
+    },
+    {
+      "username": "sammy",
+      "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u",
+      "role": "player",
+      "team": "blue"
+    },
+    {
+      "username": "dz",
+      "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u",
+      "role": "player",
+      "team": "White"
+    },
+    {
+      "username": "jj",
+      "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u",
+      "role": "player",
+      "team": "blue"
+    },
+    {
+      "username": "swan",
+      "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u",
+      "role": "player",
+      "team": "White"
+    },
+    {
+      "username": "itai",
+      "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u",
+      "role": "player",
+      "team": "blue"
+    },
+    {
+      "username": "ezra",
+      "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u",
+      "role": "player",
+      "team": "White"
+    },
+    {
+      "username": "yak",
+      "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u",
+      "role": "player",
+      "team": "blue"
+    },
+    {
+      "username": "modry",
+      "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u",
+      "role": "player",
+      "team": "White"
+    },
+    {
+      "username": "phil",
+      "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u",
+      "role": "player",
+      "team": "blue"
+    },
+    {
+      "username": "gabs",
+      "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u",
+      "role": "player",
+      "team": "White"
+    },
+    {
+      "username": "sauce",
+      "password_hash": "$2b$10$0JZ1WnZq7XwBlW/7t0t4Eezm8vN8hcQyX7zYp7aT2uM4kqE6vVb5u",
+      "role": "player",
+      "team": "White"
+    },
+    {
+      "username": "ed",
+      "password_hash": "$2b$10$M7E/WZxsGUB5Xda5BAHBve/wqVOUlevSHYKfEeZ10kNsKkDKgJgiq",
+      "role": "coach"
+    }
   ]
 }
