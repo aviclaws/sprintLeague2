@@ -59,6 +59,25 @@ export default function PlayerPage() {
     }
   }
 
+  // If already logged in, bounce to role home
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/whoami", { cache: "no-store" });
+        if (!res.ok) {
+          // not logged in
+          window.location.replace("/login");
+          return;
+        }
+        const me = await res.json();
+        // optional: enforce role here, e.g. coach only
+        // if (page === 'coach' && me.role !== 'coach') window.location.replace('/player');
+      } catch {
+        window.location.replace("/login");
+      }
+    })();
+  }, []);
+
   // load player info + initial data
   useEffect(() => {
     (async () => {

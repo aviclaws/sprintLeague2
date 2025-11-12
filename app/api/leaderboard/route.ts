@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
-import { getPool } from "@/lib/db";
+import { sql } from "@/lib/db";
 
 export const dynamic = "force-dynamic"; export const revalidate = 0;
 
 export async function GET() {
-  const db = getPool();
   // bring all runs with current team
-  const { rows } = await db.query(`
+  const rows = await sql/*sql*/`
     select r.id, r.username, u.team, r.duration_ms, r.created_at
       from runs r
       left join users u on lower(u.username)=lower(r.username)
-  `);
+  `;
 
   // sort fastest → slowest
   rows.sort((a: any, b: any) => (a.duration_ms ?? 0) - (b.duration_ms ?? 0));

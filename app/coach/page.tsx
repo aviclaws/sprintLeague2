@@ -3,9 +3,9 @@
 import { useEffect, useState, useMemo } from "react";
 
 type Role = "player" | "coach";
-type Team = "Blue" | "White" | null;
+type Team = "Blue" | "White" | "Bench" | null;
 type UserRow = { username: string; role: Role; team?: Team };
-type RunRow = { index: number; username: string; team: Team; duration_ms: number; created_at: string };
+type RunRow = { id: number; username: string; team: Team; duration_ms: number; created_at: string };
 
 function msToStr(ms: number) {
   const s = Math.floor(ms / 1000);
@@ -49,6 +49,25 @@ export default function CoachPage() {
   const [error, setError] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [newTime, setNewTime] = useState("");
+
+  // If already logged in, bounce to role home
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/whoami", { cache: "no-store" });
+        if (!res.ok) {
+          // not logged in
+          window.location.replace("/login");
+          return;
+        }
+        const me = await res.json();
+        // optional: enforce role here, e.g. coach only
+        // if (page === 'coach' && me.role !== 'coach') window.location.replace('/player');
+      } catch {
+        window.location.replace("/login");
+      }
+    })();
+  }, []);
 
   // remember collapsible state
   useEffect(() => {
@@ -159,25 +178,39 @@ export default function CoachPage() {
     });
     await Promise.all([loadRuns(), loadScore()]);
   }
-  async function updateRun(index: number, timeStr: string, username?: string) {
+
+  async function updateRun(id: number, timeStr: string, username?: string) {
     const ms = strToMs(timeStr);
-    const payload: any = { index, ...(username ? { username } : {}) };
+    const payload: any = { id, ...(username ? { username } : {}) };
     if (ms != null) payload.duration_ms = ms;
-    await fetch("/api/coach/runs", {
+
+    const res = await fetch("/api/coach/runs", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      setError(j?.error ?? "Update failed");
+      return;
+    }
     await Promise.all([loadRuns(), loadScore()]);
   }
-  async function deleteRun(index: number) {
-    await fetch("/api/coach/runs", {
+
+  async function deleteRun(id: number) {
+    const res = await fetch(`/api/coach/runs?id=${id}`, {
       method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ index }),
+      cache: "no-store",
     });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      setError(j?.error ?? "Delete failed");
+      return;
+    }
     await Promise.all([loadRuns(), loadScore()]);
   }
+
 
   useEffect(() => {
     loadUsers();
@@ -346,15 +379,15 @@ export default function CoachPage() {
                 <tr><td colSpan={6} className="p-3 text-center text-gray-400">No runs recorded.</td></tr>
               ) : (
                 runs.map((r) => (
-                  <tr key={`${r.index}-${r.created_at}`} className="odd:bg-gray-800 even:bg-gray-900 hover:bg-gray-700">
-                    <td className="p-2 border border-gray-700 text-center">{r.index}</td>
+                  <tr key={`${r.id}-${r.created_at}`} className="odd:bg-gray-800 even:bg-gray-900 hover:bg-gray-700">
+                    <td className="p-2 border border-gray-700 text-center">{r.id}</td>
                     <td className="p-2 border border-gray-700">
                       <input
                         defaultValue={r.username}
                         className="w-full bg-gray-700 text-gray-100 border border-gray-600 rounded px-2 py-1"
                         onBlur={(e) => {
                           const name = e.currentTarget.value.trim();
-                          if (name && name !== r.username) updateRun(r.index, "", name);
+                          if (name && name !== r.username) updateRun(r.id, "", name);
                         }}
                       />
                     </td>
@@ -366,7 +399,7 @@ export default function CoachPage() {
                         onBlur={(e) => {
                           const v = e.currentTarget.value;
                           const parsed = strToMs(v ?? "");
-                          if (parsed != null && parsed !== r.duration_ms) updateRun(r.index, v);
+                          if (parsed != null && parsed !== r.duration_ms) updateRun(r.id, v);
                         }}
                       />
                     </td>
@@ -376,7 +409,7 @@ export default function CoachPage() {
                     <td className="p-2 border border-gray-700 text-center">
                       <button
                         className="px-2 py-1 rounded border border-gray-600 hover:bg-gray-700"
-                        onClick={() => deleteRun(r.index)}
+                        onClick={() => deleteRun(r.id)}
                       >
                         Delete
                       </button>
