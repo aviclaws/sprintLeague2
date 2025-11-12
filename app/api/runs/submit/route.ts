@@ -5,50 +5,52 @@ import path from "path";
 import { requireUser } from "@/lib/auth";
 import { getUsers } from "@/lib/users";
 
+type Team = "Blue" | "White" | null;
+type Run = { username: string; team: Team; duration_ms: number; created_at: string };
+
 function runsPath() {
   return path.join(process.cwd(), "runs.json");
 }
 
-type Run = {
-  username: string;
-  team: "Blue" | "White" | null;
-  sprint: number;
-  duration_ms: number;
-  created_at: string;
-};
+function loadRuns(): { runs: Run[] } {
+  const p = runsPath();
+  if (!fs.existsSync(p)) return { runs: [] };
+  try {
+    return JSON.parse(fs.readFileSync(p, "utf8"));
+  } catch {
+    return { runs: [] };
+  }
+}
 
-type RunsFile = { runs: Run[] };
+function saveRuns(data: { runs: Run[] }) {
+  fs.writeFileSync(runsPath(), JSON.stringify(data, null, 2));
+}
 
 export async function POST(req: NextRequest) {
-  const user = requireUser();
-  const body = await req.json() as { start: number; stop: number; sprint?: number };
-  const sprint = body.sprint ?? 1;
+  const user = await requireUser(); // async version
+  const { start, stop } = await req.json();
 
-  if (typeof body.start !== "number" || typeof body.stop !== "number" || body.stop <= body.start) {
+  if (typeof start !== "number" || typeof stop !== "number" || !isFinite(start) || !isFinite(stop) || stop <= start) {
     return NextResponse.json({ error: "Invalid timestamps" }, { status: 400 });
   }
 
-  const duration_ms = Math.round(body.stop - body.start);
-  if (duration_ms < 200 || duration_ms > 10 * 60 * 1000) {
+  const duration_ms = Math.max(0, Math.round(stop - start));
+  if (duration_ms < 50 || duration_ms > 10 * 60 * 1000) {
     return NextResponse.json({ error: "Unreasonable time" }, { status: 400 });
   }
 
-  const users = getUsers();
-  const me = users.find(u => u.username === user.sub);
-  const team = me?.team ?? null;
+  // Look up team from users.json at submission time
+  const me = getUsers().find(u => u.username === user.sub);
+  const team: Team = (me?.team === "Blue" || me?.team === "White") ? me!.team : null;
 
-  const raw = fs.readFileSync(runsPath(), "utf8");
-  const data = JSON.parse(raw) as RunsFile;
-
+  const data = loadRuns();
   data.runs.push({
     username: user.sub,
-    team: (team as any) ?? null,
-    sprint,
+    team,
     duration_ms,
-    created_at: new Date().toISOString()
+    created_at: new Date().toISOString(),
   });
-
-  fs.writeFileSync(runsPath(), JSON.stringify(data, null, 2));
+  saveRuns(data);
 
   return NextResponse.json({ ok: true, duration_ms });
 }

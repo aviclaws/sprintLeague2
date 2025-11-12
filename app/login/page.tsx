@@ -1,41 +1,38 @@
 // app/login/page.tsx
-"use client";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-
 export default function LoginPage() {
-  const [username, setU] = useState("");
-  const [password, setP] = useState("");
-  const [error, setErr] = useState<string | null>(null);
-  const router = useRouter();
-
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setErr(null);
-    const res = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password })
-    });
-    if (!res.ok) {
-      const j = await res.json();
-      setErr(j.error ?? "Login failed");
-      return;
-    }
-    const j = await res.json();
-    router.push(j.role === "coach" ? "/coach" : "/player");
-  }
-
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
-      <form onSubmit={onSubmit} className="w-full max-w-sm bg-white p-6 rounded-xl shadow">
-        <h1 className="text-2xl font-bold mb-4">sprintLeague — Login</h1>
-        <label className="block mb-2 text-sm">Username</label>
-        <input className="w-full border rounded px-3 py-2 mb-4" value={username} onChange={e=>setU(e.target.value)} />
-        <label className="block mb-2 text-sm">Password</label>
-        <input type="password" className="w-full border rounded px-3 py-2 mb-4" value={password} onChange={e=>setP(e.target.value)} />
-        {error && <div className="text-sm text-red-600 mb-3">{error}</div>}
-        <button className="w-full bg-black text-white rounded py-2">Sign in</button>
+    <div className="min-h-screen flex items-center justify-center bg-gray-900 text-gray-100 p-6">
+      <form
+        action="/api/auth/login"
+        method="POST"
+        className="w-full max-w-sm bg-gray-800 text-gray-100 p-6 rounded-xl shadow-lg border border-gray-700"
+      >
+        <h1 className="text-2xl font-bold mb-6 text-center">
+          sprintLeague — Login
+        </h1>
+
+        <label className="block mb-2 text-sm font-semibold">Username</label>
+        <input
+          name="username"
+          className="w-full mb-4 px-3 py-2 bg-gray-700 text-gray-100 border border-gray-600 rounded focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+          placeholder="Enter username"
+          required
+        />
+
+        <label className="block mb-2 text-sm font-semibold">Password</label>
+        <input
+          name="password"
+          type="password"
+          className="w-full mb-6 px-3 py-2 bg-gray-700 text-gray-100 border border-gray-600 rounded focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+          placeholder="Enter password"
+          required
+        />
+
+        <button
+          className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2 rounded transition"
+        >
+          Sign in
+        </button>
       </form>
     </div>
   );

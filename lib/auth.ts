@@ -1,5 +1,6 @@
 // lib/auth.ts
-import { headers } from "next/headers";
+import { cookies } from "next/headers";
+import jwt from "jsonwebtoken";
 
 export type SessionUser = {
   sub: string;
@@ -7,14 +8,16 @@ export type SessionUser = {
   team?: "Blue" | "White" | null;
 };
 
-export function requireUser(): SessionUser {
-  const h = headers().get("x-user");
-  if (!h) throw new Error("Unauthorized");
-  return JSON.parse(h) as SessionUser;
+export async function requireUser(): Promise<SessionUser> {
+  const store = await cookies();
+  const raw = store.get("sl_session")?.value;
+  if (!raw) throw new Error("Unauthorized");
+  const payload = jwt.verify(raw, process.env.JWT_SECRET!) as SessionUser;
+  return payload;
 }
 
-export function requireRole(roles: SessionUser["role"][]) {
-  const user = requireUser();
-  if (!roles.includes(user.role)) throw new Error("Forbidden");
-  return user;
+export async function requireRole(roles: SessionUser["role"][]): Promise<SessionUser> {
+  const u = await requireUser();
+  if (!roles.includes(u.role)) throw new Error("Forbidden");
+  return u;
 }

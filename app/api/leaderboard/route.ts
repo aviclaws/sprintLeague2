@@ -1,32 +1,56 @@
 // app/api/leaderboard/route.ts
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 
-type Run = { username: string; duration_ms: number; sprint: number; created_at: string };
+type Run = {
+  username: string;
+  team?: "Blue" | "White" | null;
+  duration_ms: number;
+  created_at: string;
+};
 
 function runsPath() {
   return path.join(process.cwd(), "runs.json");
 }
 
 export async function GET() {
-  const raw = fs.readFileSync(runsPath(), "utf8");
-  const { runs } = JSON.parse(raw) as { runs: Run[] };
+  try {
+    if (!fs.existsSync(runsPath())) {
+      return NextResponse.json({ rows: [] });
+    }
 
-  // latest sprint number present (simple heuristic)
-  const latestSprint = runs.reduce((max, r) => Math.max(max, r.sprint || 1), 1);
+    const { runs } = JSON.parse(fs.readFileSync(runsPath(), "utf8")) as { runs: Run[] };
+    if (!Array.isArray(runs)) return NextResponse.json({ rows: [] });
 
-  // best time per user for latest sprint
-  const bestByUser = new Map<string, number>();
-  runs.filter(r => r.sprint === latestSprint).forEach(r => {
-    const best = bestByUser.get(r.username);
-    if (best == null || r.duration_ms < best) bestByUser.set(r.username, r.duration_ms);
-  });
+    // Sort fastest → slowest first (so scoreboard stays consistent)
+    const sorted = [...runs].sort((a, b) => (a.duration_ms ?? 0) - (b.duration_ms ?? 0));
 
-  const rows = [...bestByUser.entries()]
-    .map(([username, duration_ms]) => ({ username, duration_ms, sprint: latestSprint }))
-    .sort((a,b)=>a.duration_ms - b.duration_ms)
-    .slice(0, 50);
+    // compute per-user indices
+    const counters: Record<string, number> = {};
+    const rows = sorted.map((r) => {
+      const uname = (r.username ?? "").trim().toLowerCase();
+      counters[uname] = (counters[uname] ?? 0) + 1;
+      return {
+        index: counters[uname], // unique per user
+        username: r.username,
+        team: r.team ?? "—",
+        duration_ms: r.duration_ms,
+        created_at: r.created_at,
+      };
+    });
 
-  return NextResponse.json({ sprint: latestSprint, rows });
+    return new NextResponse(JSON.stringify({ rows }), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+      },
+    });
+  } catch (err: any) {
+    return NextResponse.json({ rows: [], error: err?.message ?? "Server error" }, { status: 500 });
+  }
 }
