@@ -18,13 +18,15 @@ export default function PlayerPage() {
   const [displayMs, setDisplayMs] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const startRef = useRef<number | null>(null);
+  const stopRef = useRef<number | null>(null);       // <- captured when Stop is pressed
+  const finalMsRef = useRef<number | null>(null);     // <- frozen duration at Stop
   const rafRef = useRef<number | null>(null);
   const runningRef = useRef(false);
 
   // player info + data
   const [username, setUsername] = useState<string>("");
   const [team, setTeam] = useState<Team>(null);
-  const [avgTime, setAvgTime] = useState<number | null>(null); // <- all-time from /api/player/avg
+  const [avgTime, setAvgTime] = useState<number | null>(null); // all-time from /api/player/avg
   const [score, setScore] = useState<{ blue: number; white: number }>({ blue: 0, white: 0 });
   const [leaders, setLeaders] = useState<{ index: number; username: string; duration_ms: number; team: Team }[]>([]);
   const [err, setErr] = useState<string | null>(null);
@@ -53,7 +55,7 @@ export default function PlayerPage() {
     }
   }
 
-  // If already logged in, bounce to role home
+  // verify session
   useEffect(() => {
     (async () => {
       try {
@@ -62,7 +64,6 @@ export default function PlayerPage() {
           window.location.replace("/login");
           return;
         }
-        // we just verify session here; details loaded below
       } catch {
         window.location.replace("/login");
       }
@@ -96,14 +97,18 @@ export default function PlayerPage() {
     const now = performance.now();
     setDisplayMs(Math.max(0, Math.floor(now - startRef.current)));
     rafRef.current = requestAnimationFrame(tick);
-    }
+  }
+
   function start() {
     if (runningRef.current) return;
     startRef.current = performance.now();
+    stopRef.current = null;          // clear any prior stop
+    finalMsRef.current = null;       // clear frozen duration
     runningRef.current = true;
     setIsRunning(true);
     rafRef.current = requestAnimationFrame(tick);
   }
+
   function stop() {
     if (!runningRef.current) return;
     runningRef.current = false;
@@ -113,25 +118,41 @@ export default function PlayerPage() {
       rafRef.current = null;
     }
     if (startRef.current != null) {
-      const now = performance.now();
-      setDisplayMs(Math.max(0, Math.floor(now - startRef.current)));
+      const now = performance.now();                        // exact stop instant
+      stopRef.current = now;                                // store stop ts
+      const dur = Math.max(0, Math.floor(now - startRef.current));
+      finalMsRef.current = dur;                             // freeze duration
+      setDisplayMs(dur);                                    // show frozen time
     }
   }
+
   function reset() {
-    stop();
+    // reset everything without recomputing
+    runningRef.current = false;
+    setIsRunning(false);
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
     startRef.current = null;
+    stopRef.current = null;
+    finalMsRef.current = null;
     setDisplayMs(0);
   }
 
   async function submit() {
     setErr(null);
-    if (startRef.current == null) return;
-    const stopTs = performance.now();
+    // Require a stopped, valid run
+    if (startRef.current == null || stopRef.current == null || finalMsRef.current == null) {
+      setErr("Stop the timer before submitting.");
+      return;
+    }
     try {
       const res = await fetch("/api/runs/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ start: startRef.current, stop: stopTs }),
+        // IMPORTANT: use the captured stopRef (not performance.now())
+        body: JSON.stringify({ start: startRef.current, stop: stopRef.current }),
       });
       if (!res.ok) {
         const t = await res.text();
@@ -174,10 +195,33 @@ export default function PlayerPage() {
         <div className="p-6 rounded-xl border border-gray-700 bg-gray-800">
           <div className="text-6xl font-mono text-center mb-6">{msToStr(displayMs)}</div>
           <div className="flex flex-wrap gap-3 justify-center">
-            <button onClick={start} className="px-4 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50" disabled={isRunning}>Start</button>
-            <button onClick={stop} className="px-4 py-2 rounded border border-gray-600 hover:bg-gray-700">Stop</button>
-            <button onClick={reset} className="px-4 py-2 rounded border border-gray-600 hover:bg-gray-700">Reset</button>
-            <button onClick={submit} className="px-4 py-2 rounded bg-green-600 hover:bg-green-500 text-white disabled:opacity-50" disabled={isRunning || displayMs === 0}>Submit</button>
+            <button
+              onClick={start}
+              className="px-4 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50"
+              disabled={isRunning}
+            >
+              Start
+            </button>
+            <button
+              onClick={stop}
+              className="px-4 py-2 rounded border border-gray-600 hover:bg-gray-700"
+            >
+              Stop
+            </button>
+            <button
+              onClick={reset}
+              className="px-4 py-2 rounded border border-gray-600 hover:bg-gray-700"
+            >
+              Reset
+            </button>
+            <button
+              onClick={submit}
+              className="px-4 py-2 rounded bg-green-600 hover:bg-green-500 text-white disabled:opacity-50"
+              // Disable while running or with no measured time
+              disabled={isRunning || displayMs === 0}
+            >
+              Submit
+            </button>
           </div>
         </div>
 
@@ -185,8 +229,12 @@ export default function PlayerPage() {
         <div className="p-6 rounded-xl border border-gray-700 bg-gray-800">
           <h2 className="font-semibold mb-3">Scoreboard (today)</h2>
           <div className="flex gap-6 text-2xl mb-4">
-            <div>Blue: <span className="font-mono text-blue-400">{msToStr(score.blue)}</span></div>
-            <div>White: <span className="font-mono text-gray-100">{msToStr(score.white)}</span></div>
+            <div>
+              Blue: <span className="font-mono text-blue-400">{msToStr(score.blue)}</span>
+            </div>
+            <div>
+              White: <span className="font-mono text-gray-100">{msToStr(score.white)}</span>
+            </div>
           </div>
 
           <h2 className="font-semibold mt-2 mb-2">Today’s Submissions</h2>
@@ -203,19 +251,29 @@ export default function PlayerPage() {
               <tbody>
                 {leaders.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="p-3 text-center text-gray-400">No runs yet.</td>
+                    <td colSpan={4} className="p-3 text-center text-gray-400">
+                      No runs yet.
+                    </td>
                   </tr>
                 ) : (
                   leaders.map((r, i) => (
                     <tr key={`${r.username}-${i}`} className="odd:bg-gray-800 even:bg-gray-900">
                       <td className="p-2 border border-gray-700 text-center">{r.index ?? i + 1}</td>
                       <td className="p-2 border border-gray-700 text-left">{r.username}</td>
-                      <td className={`p-2 border border-gray-700 text-center font-semibold ${
-                        r.team === "Blue" ? "text-blue-400" : r.team === "White" ? "text-gray-100" : "text-gray-400"
-                      }`}>
+                      <td
+                        className={`p-2 border border-gray-700 text-center font-semibold ${
+                          r.team === "Blue"
+                            ? "text-blue-400"
+                            : r.team === "White"
+                            ? "text-gray-100"
+                            : "text-gray-400"
+                        }`}
+                      >
                         {r.team ?? "—"}
                       </td>
-                      <td className="p-2 border border-gray-700 font-mono text-center">{msToStr(r.duration_ms)}</td>
+                      <td className="p-2 border border-gray-700 font-mono text-center">
+                        {msToStr(r.duration_ms)}
+                      </td>
                     </tr>
                   ))
                 )}
