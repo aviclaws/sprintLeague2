@@ -1,4 +1,3 @@
-// app/player/page.tsx
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -18,31 +17,28 @@ export default function PlayerPage() {
   const [displayMs, setDisplayMs] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const startRef = useRef<number | null>(null);
-  const stopRef = useRef<number | null>(null);       // <- captured when Stop is pressed
-  const finalMsRef = useRef<number | null>(null);     // <- frozen duration at Stop
+  const stopRef = useRef<number | null>(null);
+  const finalMsRef = useRef<number | null>(null);
   const rafRef = useRef<number | null>(null);
   const runningRef = useRef(false);
 
   // player info + data
   const [username, setUsername] = useState<string>("");
   const [team, setTeam] = useState<Team>(null);
-  const [avgTime, setAvgTime] = useState<number | null>(null); // all-time from /api/player/avg
+  const [avgTime, setAvgTime] = useState<number | null>(null);
   const [score, setScore] = useState<{ blue: number; white: number }>({ blue: 0, white: 0 });
   const [leaders, setLeaders] = useState<{ index: number; username: string; duration_ms: number; team: Team }[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
   async function refreshBoards() {
     try {
-      // daily team totals
       const s = await fetch("/api/scoreboard", { cache: "no-store" }).then((r) => r.json());
       setScore({ blue: s.blue ?? 0, white: s.white ?? 0 });
 
-      // daily leaderboard (today only)
       const l = await fetch("/api/leaderboard", { cache: "no-store" }).then((r) => r.json());
       const rows = Array.isArray(l.rows) ? l.rows : [];
       setLeaders(rows);
 
-      // all-time average for the logged-in player
       const a = await fetch("/api/player/avg", { cache: "no-store" });
       if (a.ok) {
         const { avg_ms } = await a.json();
@@ -102,8 +98,8 @@ export default function PlayerPage() {
   function start() {
     if (runningRef.current) return;
     startRef.current = performance.now();
-    stopRef.current = null;          // clear any prior stop
-    finalMsRef.current = null;       // clear frozen duration
+    stopRef.current = null;
+    finalMsRef.current = null;
     runningRef.current = true;
     setIsRunning(true);
     rafRef.current = requestAnimationFrame(tick);
@@ -118,16 +114,15 @@ export default function PlayerPage() {
       rafRef.current = null;
     }
     if (startRef.current != null) {
-      const now = performance.now();                        // exact stop instant
-      stopRef.current = now;                                // store stop ts
+      const now = performance.now();
+      stopRef.current = now;
       const dur = Math.max(0, Math.floor(now - startRef.current));
-      finalMsRef.current = dur;                             // freeze duration
-      setDisplayMs(dur);                                    // show frozen time
+      finalMsRef.current = dur;
+      setDisplayMs(dur);
     }
   }
 
   function reset() {
-    // reset everything without recomputing
     runningRef.current = false;
     setIsRunning(false);
     if (rafRef.current) {
@@ -142,7 +137,6 @@ export default function PlayerPage() {
 
   async function submit() {
     setErr(null);
-    // Require a stopped, valid run
     if (startRef.current == null || stopRef.current == null || finalMsRef.current == null) {
       setErr("Stop the timer before submitting.");
       return;
@@ -151,7 +145,6 @@ export default function PlayerPage() {
       const res = await fetch("/api/runs/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // IMPORTANT: use the captured stopRef (not performance.now())
         body: JSON.stringify({ start: startRef.current, stop: stopRef.current }),
       });
       if (!res.ok) {
@@ -192,22 +185,28 @@ export default function PlayerPage() {
 
       <div className="grid gap-6 md:grid-cols-2">
         {/* Stopwatch */}
-        <div className="p-6 rounded-xl border border-gray-700 bg-gray-800">
+        <div className="p-6 rounded-xl border border-gray-700 bg-gray-800 flex flex-col items-center">
           <div className="text-6xl font-mono text-center mb-6">{msToStr(displayMs)}</div>
-          <div className="flex flex-wrap gap-3 justify-center">
+
+          {/* Big circular Start/Stop button */}
+          {!isRunning ? (
             <button
               onClick={start}
-              className="px-4 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50"
-              disabled={isRunning}
+              className="w-40 h-40 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-500 text-white text-2xl font-bold shadow-lg transition-transform transform active:scale-95"
             >
               Start
             </button>
+          ) : (
             <button
               onClick={stop}
-              className="px-4 py-2 rounded border border-gray-600 hover:bg-gray-700"
+              className="w-40 h-40 flex items-center justify-center rounded-full bg-red-600 hover:bg-red-500 text-white text-2xl font-bold shadow-lg transition-transform transform active:scale-95"
             >
               Stop
             </button>
+          )}
+
+          {/* Reset & Submit below */}
+          <div className="flex gap-4 mt-6">
             <button
               onClick={reset}
               className="px-4 py-2 rounded border border-gray-600 hover:bg-gray-700"
@@ -217,7 +216,6 @@ export default function PlayerPage() {
             <button
               onClick={submit}
               className="px-4 py-2 rounded bg-green-600 hover:bg-green-500 text-white disabled:opacity-50"
-              // Disable while running or with no measured time
               disabled={isRunning || displayMs === 0}
             >
               Submit
@@ -225,7 +223,7 @@ export default function PlayerPage() {
           </div>
         </div>
 
-        {/* Scoreboard + Leaderboard (today only) */}
+        {/* Scoreboard + Leaderboard */}
         <div className="p-6 rounded-xl border border-gray-700 bg-gray-800">
           <h2 className="font-semibold mb-3">Scoreboard (today)</h2>
           <div className="flex gap-6 text-2xl mb-4">
