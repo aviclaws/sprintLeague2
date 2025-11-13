@@ -50,9 +50,29 @@ export async function updateRunById(
       where id = ${id}
     `;
   }
-  // no-op if neither field provided
 }
 
 export async function deleteRunById(id: number) {
   await sql/*sql*/`delete from runs where id = ${id}`;
+}
+
+/**
+ * Count how many runs this user has submitted "today" (UTC day).
+ * Used to enforce the 10-run daily limit.
+ */
+export async function countRunsToday(username: string): Promise<number> {
+  const now = new Date();
+  const startUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const endUTC = new Date(startUTC.getTime() + 24 * 60 * 60 * 1000);
+
+  const rows = await sql/*sql*/`
+    select count(*)::int as count
+    from runs
+    where lower(username) = lower(${username})
+      and created_at >= ${startUTC.toISOString()}
+      and created_at <  ${endUTC.toISOString()}
+  `;
+
+  const count = (rows?.[0] as { count?: number } | undefined)?.count ?? 0;
+  return count;
 }
