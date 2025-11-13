@@ -186,36 +186,36 @@ export default function PlayerPage() {
       <div className="grid gap-6 md:grid-cols-2">
         {/* Stopwatch */}
         <div className="p-6 rounded-xl border border-gray-700 bg-gray-800 flex flex-col items-center">
-          <div className="text-6xl font-mono text-center mb-6">{msToStr(displayMs)}</div>
+          <div className="text-6xl font-mono text-center mb-8">{msToStr(displayMs)}</div>
 
           {/* Big circular Start/Stop button */}
           {!isRunning ? (
             <button
               onClick={start}
-              className="w-40 h-40 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-500 text-white text-2xl font-bold shadow-lg transition-transform transform active:scale-95"
+              className="w-56 h-56 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-500 text-white text-3xl font-extrabold shadow-2xl transition-transform transform active:scale-95 hover:shadow-blue-500/40"
             >
               Start
             </button>
           ) : (
             <button
               onClick={stop}
-              className="w-40 h-40 flex items-center justify-center rounded-full bg-red-600 hover:bg-red-500 text-white text-2xl font-bold shadow-lg transition-transform transform active:scale-95"
+              className="w-56 h-56 flex items-center justify-center rounded-full bg-red-600 hover:bg-red-500 text-white text-3xl font-extrabold shadow-2xl transition-transform transform active:scale-95 hover:shadow-red-500/40"
             >
               Stop
             </button>
           )}
 
           {/* Reset & Submit below */}
-          <div className="flex gap-4 mt-6">
+          <div className="flex gap-6 mt-8">
             <button
               onClick={reset}
-              className="px-4 py-2 rounded border border-gray-600 hover:bg-gray-700"
+              className="px-5 py-2 rounded border border-gray-600 hover:bg-gray-700 text-lg"
             >
               Reset
             </button>
             <button
               onClick={submit}
-              className="px-4 py-2 rounded bg-green-600 hover:bg-green-500 text-white disabled:opacity-50"
+              className="px-5 py-2 rounded bg-green-600 hover:bg-green-500 text-white text-lg disabled:opacity-50"
               disabled={isRunning || displayMs === 0}
             >
               Submit
