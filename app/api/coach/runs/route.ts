@@ -16,35 +16,46 @@ export async function GET() {
   }
 }
 
-export async function POST(req: Request) {
-  try {
-    await requireRole(["coach"]);
-    const { username, duration_ms } = await req.json();
-    if (!username || !(Number.isFinite(duration_ms) && duration_ms > 0)) {
-      return NextResponse.json({ error: "username and positive duration_ms required" }, { status: 400 });
-    }
-    await addRun(String(username), Number(duration_ms));
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "unauthorized" }, { status: 401 });
-  }
-}
+// You may keep POST for other tooling, but the coach page won't need it anymore.
+// export async function POST(...) { /* optional / no longer used by UI */ }
 
 export async function PATCH(req: Request) {
   try {
     await requireRole(["coach"]);
-    const { id, username, duration_ms } = await req.json();
+    const raw = await req.json();
+
+    // Coerce and sanitize inputs (handles string ids from BIGINT, etc.)
+    const id = raw?.id !== undefined && raw?.id !== null ? Number(raw.id) : NaN;
+    const username =
+      typeof raw?.username === "string" && raw.username.trim() ? raw.username.trim() : undefined;
+    const duration_ms =
+      raw?.duration_ms !== undefined && raw?.duration_ms !== null
+        ? Number(raw.duration_ms)
+        : undefined;
+
+    // INSERT when there's no valid id but we have username + duration_ms
     if (!Number.isFinite(id)) {
-      return NextResponse.json({ error: "id required" }, { status: 400 });
+      if (typeof username === "string" && Number.isFinite(duration_ms) && (duration_ms as number) > 0) {
+        await addRun(username, duration_ms as number);
+        return NextResponse.json({ ok: true, mode: "insert" });
+      }
+      return NextResponse.json(
+        { error: "for insert: username and positive duration_ms required" },
+        { status: 400 }
+      );
     }
+
+    // UPDATE when id is present (optionally username and/or duration_ms)
     const fields: { username?: string; duration_ms?: number } = {};
-    if (typeof username === "string" && username.trim()) fields.username = username.trim();
-    if (Number.isFinite(duration_ms)) fields.duration_ms = Number(duration_ms);
+    if (typeof username === "string") fields.username = username;
+    if (Number.isFinite(duration_ms)) fields.duration_ms = duration_ms as number;
+
     if (!("username" in fields) && !("duration_ms" in fields)) {
       return NextResponse.json({ error: "nothing to update" }, { status: 400 });
     }
-    await updateRunById(Number(id), fields);
-    return NextResponse.json({ ok: true });
+
+    await updateRunById(id, fields);
+    return NextResponse.json({ ok: true, mode: "update" });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? "unauthorized" }, { status: 401 });
   }
@@ -53,8 +64,6 @@ export async function PATCH(req: Request) {
 export async function DELETE(req: Request) {
   try {
     await requireRole(["coach"]);
-
-    // Prefer query param (?id=123), fall back to JSON body
     const url = new URL(req.url);
     const qsId = url.searchParams.get("id");
     let id: number | null = qsId ? Number(qsId) : null;

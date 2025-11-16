@@ -2,7 +2,7 @@
   "users": [
     {
       "username": "avi",
-      "password_hash": "$2b$10$noeJN.LWirHvHumGfM9s1u.HgEkZJphOqggvW5j6m5cMz5AjkNo5G",
+      "password_hash": "$2b$10$u3fkjkM56Mg4XIVwZmFqFuNgBDMJlaV7gQIu1ItYnxlVfBPWZp4D.",
       "role": "coach",
       "team": null
     },

@@ -1,3 +1,4 @@
+// app/api/scoreboard/route.ts
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 

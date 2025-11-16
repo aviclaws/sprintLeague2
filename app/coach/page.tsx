@@ -1,35 +1,60 @@
-// app/coach/page.tsx
+// app/coach/page.tsx (revised)
 "use client";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 
 type Role = "player" | "coach";
 type Team = "Blue" | "White" | "Bench" | null;
 type UserRow = { username: string; role: Role; team?: Team };
 type RunRow = { id: number; username: string; team: Team; duration_ms: number; created_at: string };
 
+const MAX_SPRINTS = 10;
+
+/** Format: seconds + hundredths (SS.hh), e.g., "07.32" */
 function msToStr(ms: number) {
   const s = Math.floor(ms / 1000);
-  const m = Math.floor(s / 60);
-  const rems = s % 60;
-  const remms = Math.floor((ms % 1000) / 10);
-  return `${String(m).padStart(2, "0")}:${String(rems).padStart(2, "0")}.${String(remms).padStart(2, "0")}`;
+  const hh = Math.floor((ms % 1000) / 10);
+  return `${String(s).padStart(2, "0")}.${String(hh).padStart(2, "0")}`;
 }
+
+/** Parse "SS.hh" or "MM:SS.hh" or raw milliseconds; "" -> null */
 function strToMs(str: string): number | null {
   const t = str.trim();
-  if (/^\d+(\.\d+)?$/.test(t)) return Math.round(parseFloat(t)); // raw ms
+  if (!t) return null;
+
+  // raw integer ms
+  if (/^\d+$/.test(t)) return Math.round(parseInt(t, 10));
+
+  // SS.hh or S.hh
+  if (/^\d+(\.\d{1,2})?$/.test(t)) return Math.round(parseFloat(t) * 1000);
+
+  // MM:SS.hh (or mm:ss)
   const mmss = t.split(":");
-  if (mmss.length === 1) {
-    const s = parseFloat(t);
-    if (!isFinite(s)) return null;
-    return Math.round(s * 1000);
-  }
   if (mmss.length === 2) {
-    const m = parseFloat(mmss[0]);
-    const rest = parseFloat(mmss[1]);
-    if (!isFinite(m) || !isFinite(rest)) return null;
-    return Math.round(m * 60_000 + rest * 1000);
+    const m = Number(mmss[0]);
+    const sec = Number(mmss[1]);
+    if (!Number.isFinite(m) || !Number.isFinite(sec)) return null;
+    return Math.round(m * 60_000 + sec * 1000);
   }
+
   return null;
+}
+
+/** Start/end of day in a specific IANA TZ, returned as UTC Date objects.
+ *  Matches your SQL use of America/New_York in other APIs.
+ */
+function getTZDayWindow(tz: string = "America/New_York") {
+  const now = new Date();
+  // Convert "now" into the target TZ by using the well-known offset trick
+  const tzNow = new Date(now.toLocaleString("en-US", { timeZone: tz }));
+  const tzStart = new Date(tzNow);
+  tzStart.setHours(0, 0, 0, 0);
+  const tzEnd = new Date(tzStart);
+  tzEnd.setDate(tzEnd.getDate() + 1);
+  // Offset between the fake-constructed tzNow and the real now gives us the TZ shift
+  const offset = tzNow.getTime() - now.getTime();
+  const start = new Date(tzStart.getTime() - offset);
+  const end = new Date(tzEnd.getTime() - offset);
+  return { start, end };
 }
 
 export default function CoachPage() {
@@ -43,26 +68,21 @@ export default function CoachPage() {
   const [score, setScore] = useState<{ blue: number; white: number }>({ blue: 0, white: 0 });
   const [rLoading, setRLoading] = useState(true);
 
-  // AVG times by username (ms)
+  // AVG (all-time) from the full runs dataset
   const [avgByUser, setAvgByUser] = useState<Record<string, number | undefined>>({});
 
+  // Error UI
   const [error, setError] = useState<string | null>(null);
-  const [newName, setNewName] = useState("");
-  const [newTime, setNewTime] = useState("");
 
-  // If already logged in, bounce to role home
+  // If not logged in, bounce to login
   useEffect(() => {
     (async () => {
       try {
         const res = await fetch("/api/whoami", { cache: "no-store" });
         if (!res.ok) {
-          // not logged in
           window.location.replace("/login");
           return;
         }
-        const me = await res.json();
-        // optional: enforce role here, e.g. coach only
-        // if (page === 'coach' && me.role !== 'coach') window.location.replace('/player');
       } catch {
         window.location.replace("/login");
       }
@@ -95,7 +115,6 @@ export default function CoachPage() {
     }
   }
 
-  // compute averages from current runs
   function recomputeAverages(rows: RunRow[]) {
     const sums: Record<string, { sum: number; count: number }> = {};
     for (const r of rows) {
@@ -142,7 +161,10 @@ export default function CoachPage() {
   }
 
   // update user role/team
-  async function updateUser(username: string, changes: { role?: "player" | "coach"; team?: "Blue" | "White" | "Bench" | null }) {
+  async function updateUser(
+    username: string,
+    changes: { role?: "player" | "coach"; team?: "Blue" | "White" | "Bench" | null }
+  ) {
     try {
       const payload: any = {
         username,
@@ -156,7 +178,9 @@ export default function CoachPage() {
       });
       const { user } = await res.json();
       setUsers((prev) =>
-        prev.map((u) => (u.username === username ? { ...u, role: user.role, team: user.team ?? null } : u))
+        prev.map((u) =>
+          u.username === username ? { ...u, role: user.role, team: user.team ?? null } : u
+        )
       );
       await Promise.all([loadRuns(), loadScore()]);
     } catch (e: any) {
@@ -164,53 +188,46 @@ export default function CoachPage() {
     }
   }
 
-  // run actions
-  async function addRun(username: string, timeStr: string) {
-    const ms = strToMs(timeStr);
-    if (ms == null || ms <= 0) {
-      setError("Enter time as MM:SS.xx, SS.xx, or ms");
-      return;
-    }
-    await fetch("/api/coach/runs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, duration_ms: ms }),
-    });
-    await Promise.all([loadRuns(), loadScore()]);
-  }
-
-  async function updateRun(id: number, timeStr: string, username?: string) {
-    const ms = strToMs(timeStr);
-    const payload: any = { id, ...(username ? { username } : {}) };
-    if (ms != null) payload.duration_ms = ms;
+  // API helpers for runs
+  async function updateRunAPI(id: number | string, ms?: number, username?: string) {
+    const payload: any = { id: Number(id) }; // <— force number
+    if (typeof ms === "number") payload.duration_ms = Number(ms); // <— force number
+    if (username) payload.username = username;
 
     const res = await fetch("/api/coach/runs", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
-      setError(j?.error ?? "Update failed");
-      return;
+      throw new Error(j?.error ?? "Update failed");
     }
-    await Promise.all([loadRuns(), loadScore()]);
   }
 
-  async function deleteRun(id: number) {
+
+  async function insertRunViaPatch(username: string, ms: number) {
+    const res = await fetch("/api/coach/runs", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, duration_ms: ms }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j?.error ?? "Insert failed");
+    }
+  }
+
+  async function deleteRunAPI(id: number) {
     const res = await fetch(`/api/coach/runs?id=${id}`, {
       method: "DELETE",
       cache: "no-store",
     });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
-      setError(j?.error ?? "Delete failed");
-      return;
+      throw new Error(j?.error ?? "Delete failed");
     }
-    await Promise.all([loadRuns(), loadScore()]);
   }
-
 
   useEffect(() => {
     loadUsers();
@@ -234,12 +251,208 @@ export default function CoachPage() {
     return withAvg;
   }, [users, avgByUser]);
 
+  /** Build TODAY scoreboard “matrix” per team: Name | Avg(today) | 1..10 (chronological) */
+  type Cell = { id?: number; ms?: number }; // id undefined => empty/new cell
+  type Row = { username: string; avgTodayMs: number; cells: Cell[] };
+
+  const { blueRows, whiteRows, todayTotals } = useMemo(() => {
+    const { start, end } = getTZDayWindow("America/New_York");
+
+    // Filter today’s runs using NY calendar day boundaries
+    const todays = runs.filter((r) => {
+      const t = new Date(r.created_at).getTime();
+      return t >= start.getTime() && t < end.getTime();
+    });
+
+    // Index all of today's runs by team+username (lowercased)
+    const byKey = new Map<string, RunRow[]>();
+    for (const r of todays) {
+      if (r.team !== "Blue" && r.team !== "White") continue;
+      const key = `${r.team}|${r.username.toLowerCase()}`;
+      if (!byKey.has(key)) byKey.set(key, []);
+      byKey.get(key)!.push(r);
+    }
+
+    // helper to build rows ensuring *all rostered team members appear*, not only those who ran today
+    function buildTeamRows(team: "Blue" | "White"): Row[] {
+      const teamRoster = users
+        .filter((u) => u.team === team)
+        .map((u) => u.username)
+        .sort((a, b) => a.localeCompare(b));
+
+      const rows: Row[] = [];
+      for (const name of teamRoster) {
+        const lowerName = name.toLowerCase();
+        const arr = (byKey.get(`${team}|${lowerName}`) ?? []).slice();
+
+        // chronological by created_at
+        arr.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+        const first10 = arr.slice(0, MAX_SPRINTS);
+        const avg =
+          first10.length > 0
+            ? Math.floor(first10.reduce((s, x) => s + x.duration_ms, 0) / first10.length)
+            : 0;
+
+        const cells: Cell[] = Array.from({ length: MAX_SPRINTS }, (_, i) => {
+          const r = first10[i];
+          return r ? { id: r.id, ms: r.duration_ms } : {};
+        });
+
+        rows.push({ username: name, avgTodayMs: avg, cells });
+      }
+
+      return rows;
+    }
+
+    // Team totals (today) based on today's filtered runs
+    let blueTotal = 0;
+    let whiteTotal = 0;
+    for (const r of todays) {
+      if (r.team === "Blue") blueTotal += r.duration_ms;
+      else if (r.team === "White") whiteTotal += r.duration_ms;
+    }
+
+    return {
+      blueRows: buildTeamRows("Blue"),
+      whiteRows: buildTeamRows("White"),
+      todayTotals: { blue: blueTotal, white: whiteTotal },
+    };
+  }, [runs, users]);
+
+  /** Editable scoreboard cell handler:
+   *  - empty cell -> value: PATCH insert
+   *  - filled cell -> cleared: DELETE
+   *  - filled cell -> changed: PATCH update
+   */
+  const handleScoreboardCellBlur = useCallback(
+    async (username: string, cell: Cell, newVal: string) => {
+      const ms = strToMs(newVal ?? "");
+
+      try {
+        // INSERT
+        if (!cell.id && ms != null && ms > 0) {
+          await insertRunViaPatch(username, ms);
+        }
+        // DELETE
+        else if (cell.id && (ms == null || ms <= 0 || newVal.trim() === "")) {
+          await deleteRunAPI(cell.id);
+        }
+        // UPDATE
+        else if (cell.id && ms != null && ms > 0 && ms !== cell.ms) {
+          await updateRunAPI(cell.id, ms);
+        }
+
+        await Promise.all([loadRuns(), loadScore()]);
+      } catch (e: any) {
+        setError(e?.message ?? "Cell update failed");
+      }
+    },
+    [] // stable
+  );
+
+  /** Editable scoreboard table */
+  function EditableTeamBoard({
+    title,
+    totalMs,
+    rows,
+    colorClass,
+  }: {
+    title: string;
+    totalMs: number;
+    rows: Row[];
+    colorClass: string;
+  }) {
+    return (
+      <div className="p-5 rounded-xl border border-gray-700 bg-gray-800">
+        <div className="flex items-baseline justify-between mb-4">
+          <h2 className="font-semibold text-lg">{title}</h2>
+          <div className="text-base">
+            Team Total (today): {" "}
+            <span className={`font-mono ${colorClass}`}>{msToStr(totalMs)}</span>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto border border-gray-700 rounded-lg">
+          <table className="w-full text-sm border-collapse bg-gray-800 text-gray-100">
+            <thead className="bg-gray-700">
+              <tr>
+                <th className="p-2 border border-gray-700 text-left">Name</th>
+                <th className="p-2 border border-gray-700 text-center">Avg (today)</th>
+                {Array.from({ length: MAX_SPRINTS }, (_, i) => (
+                  <th key={i} className="p-2 border border-gray-700 text-center font-mono">
+                    {i + 1}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rLoading ? (
+                <tr>
+                  <td colSpan={12} className="p-3 text-center text-gray-400">Loading…</td>
+                </tr>
+              ) : rows.length === 0 ? (
+                <tr>
+                  <td colSpan={12} className="p-3 text-center text-gray-400">No runs today.</td>
+                </tr>
+              ) : (
+                rows.map((r) => (
+                  <tr key={r.username} className="odd:bg-gray-800 even:bg-gray-900">
+                    <td className="p-2 border border-gray-700 text-left">{r.username}</td>
+                    <td className="p-2 border border-gray-700 text-center font-mono">
+                      {r.avgTodayMs ? msToStr(r.avgTodayMs) : "—"}
+                    </td>
+                    {r.cells.map((c, idx) => (
+                      <td
+                        key={`${r.username}-${idx}-${c.id ?? "new"}-${c.ms ?? ""}`}
+                        className="p-1 border border-gray-700 text-center"
+                      >
+                        <input
+                          defaultValue={typeof c.ms === "number" ? msToStr(c.ms) : ""}
+                          placeholder="—"
+                          className="w-20 text-center font-mono bg-gray-700 text-gray-100 border border-gray-600 rounded px-2 py-1"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              (e.target as HTMLInputElement).blur();
+                            } else if (e.key === "Escape") {
+                              // revert
+                              const input = e.target as HTMLInputElement;
+                              input.value = typeof c.ms === "number" ? msToStr(c.ms) : "";
+                              input.blur();
+                            }
+                          }}
+                          onBlur={(e) => handleScoreboardCellBlur(r.username, c, e.currentTarget.value)}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="text-xs text-gray-400 mt-2">
+          Tip: Type <span className="font-mono">SS.hh</span> (or <span className="font-mono">MM:SS.hh</span> or raw ms) to add/update. Clear to delete. Press <span className="font-mono">Enter</span> to save, <span className="font-mono">Esc</span> to revert.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen p-6 space-y-8 bg-gray-900 text-gray-100">
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">sprintLeague — Coach</h1>
         <div className="flex gap-2">
-          <button onClick={() => { loadUsers(); loadRuns(); loadScore(); }} className="px-3 py-1 rounded border border-gray-600 hover:bg-gray-700">Refresh</button>
+          <button
+            onClick={() => {
+              loadUsers();
+              loadRuns();
+              loadScore();
+            }}
+            className="px-3 py-1 rounded border border-gray-600 hover:bg-gray-700"
+          >
+            Refresh
+          </button>
           <form action="/api/auth/logout" method="POST">
             <button className="px-3 py-1 rounded bg-gray-700 hover:bg-gray-600">Logout</button>
           </form>
@@ -255,12 +468,20 @@ export default function CoachPage() {
           className="w-full flex items-center justify-between px-3 py-2 rounded-lg border border-gray-700 bg-gray-800 hover:bg-gray-700"
         >
           <span className="text-xl font-semibold">Users</span>
-          <svg className={`h-5 w-5 transition-transform ${usersOpen ? "rotate-180" : ""}`} viewBox="0 0 20 20" fill="currentColor">
+          <svg
+            className={`h-5 w-5 transition-transform ${usersOpen ? "rotate-180" : ""}`}
+            viewBox="0 0 20 20"
+            fill="currentColor"
+          >
             <path d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 011.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" />
           </svg>
         </button>
 
-        <div className={`overflow-hidden transition-[max-height,opacity] duration-300 ease-in-out ${usersOpen ? "max-h-[1400px] opacity-100" : "max-h-0 opacity-0"}`}>
+        <div
+          className={`overflow-hidden transition-[max-height,opacity] duration-300 ease-in-out ${
+            usersOpen ? "max-h-[1400px] opacity-100" : "max-h-0 opacity-0"
+          }`}
+        >
           <div className="mt-3 overflow-x-auto border border-gray-700 rounded-lg shadow-lg">
             <table className="w-full text-sm border-collapse bg-gray-800 text-gray-100">
               <thead className="bg-gray-700">
@@ -268,20 +489,26 @@ export default function CoachPage() {
                   <th className="p-2 border border-gray-700 text-left">User</th>
                   <th className="p-2 border border-gray-700">Role</th>
                   <th className="p-2 border border-gray-700">Team</th>
-                  <th className="p-2 border border-gray-700">Avg Time</th>
+                  <th className="p-2 border border-gray-700">Avg Time (all-time)</th>
                 </tr>
               </thead>
               <tbody>
                 {uLoading ? (
-                  <tr><td colSpan={4} className="p-3 text-center text-gray-400">Loading…</td></tr>
+                  <tr>
+                    <td colSpan={4} className="p-3 text-center text-gray-400">
+                      Loading…
+                    </td>
+                  </tr>
                 ) : usersSorted.length === 0 ? (
-                  <tr><td colSpan={4} className="p-3 text-center text-gray-400">No users.</td></tr>
+                  <tr>
+                    <td colSpan={4} className="p-3 text-center text-gray-400">No users.</td>
+                  </tr>
                 ) : (
                   usersSorted.map((u) => (
                     <tr key={u.username} className="odd:bg-gray-800 even:bg-gray-900 hover:bg-gray-700">
                       <td className="p-2 border border-gray-700 text-left">{u.username}</td>
 
-                      {/* Role dropdown (player/coach) */}
+                      {/* Role dropdown */}
                       <td className="p-2 border border-gray-700 text-center">
                         <select
                           defaultValue={u.role}
@@ -293,7 +520,7 @@ export default function CoachPage() {
                         </select>
                       </td>
 
-                      {/* Team dropdown (White/Blue/Bench) */}
+                      {/* Team dropdown */}
                       <td className="p-2 border border-gray-700 text-center">
                         <select
                           defaultValue={u.team ?? "Bench"}
@@ -309,7 +536,7 @@ export default function CoachPage() {
                         </select>
                       </td>
 
-                      {/* Avg time */}
+                      {/* Avg time (all-time) */}
                       <td className="p-2 border border-gray-700 text-center font-mono">
                         {(() => {
                           const a = avgByUser[u.username.trim().toLowerCase()];
@@ -325,101 +552,35 @@ export default function CoachPage() {
         </div>
       </section>
 
-      {/* SCOREBOARD + RUNS */}
-      <section className="space-y-3">
-        <div className="flex items-end justify-between">
-          <h2 className="text-xl font-semibold">Scoreboard & Runs</h2>
-          <div className="text-lg">
-            Blue: <span className="font-mono text-blue-400">{msToStr(score.blue)}</span>
-            <span className="mx-3 opacity-50">|</span>
-            White: <span className="font-mono text-gray-100">{msToStr(score.white)}</span>
+      {/* TEAM TOTALS (today) */}
+      <section className="p-5 rounded-xl border border-gray-700 bg-gray-800">
+        <h2 className="font-semibold text-lg mb-3">Team Totals (today)</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-center">
+          <div className="p-3 rounded-lg bg-gray-900">
+            <div className="text-sm text-gray-300 mb-1">White</div>
+            <div className="text-3xl font-mono text-gray-100">{msToStr(score.white)}</div>
+          </div>
+          <div className="p-3 rounded-lg bg-gray-900">
+            <div className="text-sm text-gray-300 mb-1">Blue</div>
+            <div className="text-3xl font-mono text-blue-400">{msToStr(score.blue)}</div>
           </div>
         </div>
+      </section>
 
-        {/* Add run */}
-        <div className="p-3 rounded-lg border border-gray-700 bg-gray-800 flex flex-wrap gap-3 items-center">
-          <div className="text-sm opacity-80">Add row:</div>
-          <input
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder="username"
-            className="bg-gray-700 text-gray-100 border border-gray-600 rounded px-3 py-2"
-          />
-          <input
-            value={newTime}
-            onChange={(e) => setNewTime(e.target.value)}
-            placeholder="time (MM:SS.xx or SS.xx or ms)"
-            className="bg-gray-700 text-gray-100 border border-gray-600 rounded px-3 py-2"
-          />
-          <button
-            onClick={() => { if (newName && newTime) { addRun(newName, newTime); setNewName(""); setNewTime(""); } }}
-            className="px-3 py-2 rounded bg-green-600 hover:bg-green-500 text-white"
-          >
-            Add
-          </button>
-        </div>
-
-        {/* Runs table */}
-        <div className="overflow-x-auto border border-gray-700 rounded-lg shadow-lg">
-          <table className="w-full text-sm border-collapse bg-gray-800 text-gray-100">
-            <thead className="bg-gray-700">
-              <tr>
-                <th className="p-2 border border-gray-700">Index</th>
-                <th className="p-2 border border-gray-700 text-left">Name</th>
-                <th className="p-2 border border-gray-700">Team</th>
-                <th className="p-2 border border-gray-700">Time</th>
-                <th className="p-2 border border-gray-700">Created</th>
-                <th className="p-2 border border-gray-700">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rLoading ? (
-                <tr><td colSpan={6} className="p-3 text-center text-gray-400">Loading…</td></tr>
-              ) : runs.length === 0 ? (
-                <tr><td colSpan={6} className="p-3 text-center text-gray-400">No runs recorded.</td></tr>
-              ) : (
-                runs.map((r) => (
-                  <tr key={`${r.id}-${r.created_at}`} className="odd:bg-gray-800 even:bg-gray-900 hover:bg-gray-700">
-                    <td className="p-2 border border-gray-700 text-center">{r.id}</td>
-                    <td className="p-2 border border-gray-700">
-                      <input
-                        defaultValue={r.username}
-                        className="w-full bg-gray-700 text-gray-100 border border-gray-600 rounded px-2 py-1"
-                        onBlur={(e) => {
-                          const name = e.currentTarget.value.trim();
-                          if (name && name !== r.username) updateRun(r.id, "", name);
-                        }}
-                      />
-                    </td>
-                    <td className="p-2 border border-gray-700 text-center">{r.team ?? "Bench"}</td>
-                    <td className="p-2 border border-gray-700">
-                      <input
-                        defaultValue={msToStr(r.duration_ms)}
-                        className="w-full font-mono bg-gray-700 text-gray-100 border border-gray-600 rounded px-2 py-1"
-                        onBlur={(e) => {
-                          const v = e.currentTarget.value;
-                          const parsed = strToMs(v ?? "");
-                          if (parsed != null && parsed !== r.duration_ms) updateRun(r.id, v);
-                        }}
-                      />
-                    </td>
-                    <td className="p-2 border border-gray-700 text-xs opacity-80 text-center">
-                      {new Date(r.created_at).toLocaleString()}
-                    </td>
-                    <td className="p-2 border border-gray-700 text-center">
-                      <button
-                        className="px-2 py-1 rounded border border-gray-600 hover:bg-gray-700"
-                        onClick={() => deleteRun(r.id)}
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+      {/* EDITABLE SCOREBOARD (today) */}
+      <section className="space-y-4">
+        <EditableTeamBoard
+          title="Blue Team (today)"
+          totalMs={todayTotals.blue}
+          rows={blueRows}
+          colorClass="text-blue-400"
+        />
+        <EditableTeamBoard
+          title="White Team (today)"
+          totalMs={todayTotals.white}
+          rows={whiteRows}
+          colorClass="text-gray-100"
+        />
       </section>
     </div>
   );
