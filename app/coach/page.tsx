@@ -1,6 +1,6 @@
-// app/coach/page.tsx (revised)
+// app/coach/page.tsx
 "use client";
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 
 type Role = "player" | "coach";
 type Team = "Blue" | "White" | "Bench" | null;
@@ -39,18 +39,14 @@ function strToMs(str: string): number | null {
   return null;
 }
 
-/** Start/end of day in a specific IANA TZ, returned as UTC Date objects.
- *  Matches your SQL use of America/New_York in other APIs.
- */
+/** Start/end of day in a specific IANA TZ, returned as UTC Date objects. */
 function getTZDayWindow(tz: string = "America/New_York") {
   const now = new Date();
-  // Convert "now" into the target TZ by using the well-known offset trick
   const tzNow = new Date(now.toLocaleString("en-US", { timeZone: tz }));
   const tzStart = new Date(tzNow);
   tzStart.setHours(0, 0, 0, 0);
   const tzEnd = new Date(tzStart);
   tzEnd.setDate(tzEnd.getDate() + 1);
-  // Offset between the fake-constructed tzNow and the real now gives us the TZ shift
   const offset = tzNow.getTime() - now.getTime();
   const start = new Date(tzStart.getTime() - offset);
   const end = new Date(tzEnd.getTime() - offset);
@@ -58,6 +54,10 @@ function getTZDayWindow(tz: string = "America/New_York") {
 }
 
 export default function CoachPage() {
+  // SELF (whoami) — for stopwatch visibility + cap
+  const [myUsername, setMyUsername] = useState<string>("");
+  const [myTeam, setMyTeam] = useState<Team>(null);
+
   // USERS
   const [users, setUsers] = useState<UserRow[]>([]);
   const [uLoading, setULoading] = useState(true);
@@ -74,7 +74,85 @@ export default function CoachPage() {
   // Error UI
   const [error, setError] = useState<string | null>(null);
 
-  // If not logged in, bounce to login
+  // --- STOPWATCH (coach) ---
+  const [displayMs, setDisplayMs] = useState(0);
+  const [isRunning, setIsRunning] = useState(false);
+  const startRef = useRef<number | null>(null);
+  const stopRef = useRef<number | null>(null);
+  const finalMsRef = useRef<number | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const runningRef = useRef(false);
+
+  function tick() {
+    if (!runningRef.current || startRef.current == null) return;
+    const now = performance.now();
+    setDisplayMs(Math.max(0, Math.floor(now - startRef.current)));
+    rafRef.current = requestAnimationFrame(tick);
+  }
+  function start() {
+    if (runningRef.current) return;
+    startRef.current = performance.now();
+    stopRef.current = null;
+    finalMsRef.current = null;
+    runningRef.current = true;
+    setIsRunning(true);
+    rafRef.current = requestAnimationFrame(tick);
+  }
+  function stop() {
+    if (!runningRef.current) return;
+    runningRef.current = false;
+    setIsRunning(false);
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    if (startRef.current != null) {
+      const now = performance.now();
+      stopRef.current = now;
+      const dur = Math.max(0, Math.floor(now - startRef.current));
+      finalMsRef.current = dur;
+      setDisplayMs(dur);
+    }
+  }
+  function reset() {
+    runningRef.current = false;
+    setIsRunning(false);
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    startRef.current = null;
+    stopRef.current = null;
+    finalMsRef.current = null;
+    setDisplayMs(0);
+  }
+  async function submitRunFromStopwatch() {
+    setError(null);
+    if (startRef.current == null || stopRef.current == null || finalMsRef.current == null) {
+      setError("Stop the timer before submitting.");
+      return;
+    }
+    if (myRunsToday >= MAX_SPRINTS) {
+      setError("Daily limit reached (10/10).");
+      return;
+    }
+    try {
+      const res = await fetch("/api/runs/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ start: startRef.current, stop: stopRef.current }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(async () => ({ error: await res.text() }));
+        throw new Error(j?.error || `Submit failed (${res.status})`);
+      }
+      reset();
+      await Promise.all([loadRuns(), loadScore()]);
+    } catch (e: any) {
+      setError(e?.message ?? "Submit failed");
+    }
+  }
+
   useEffect(() => {
     (async () => {
       try {
@@ -83,10 +161,16 @@ export default function CoachPage() {
           window.location.replace("/login");
           return;
         }
+        const who = await res.json().catch(() => ({}));
+        if (who?.username) setMyUsername(who.username);
+        if (who?.team !== undefined) setMyTeam(who.team as Team);
       } catch {
         window.location.replace("/login");
       }
     })();
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
   }, []);
 
   // remember collapsible state
@@ -182,16 +266,16 @@ export default function CoachPage() {
           u.username === username ? { ...u, role: user.role, team: user.team ?? null } : u
         )
       );
-      await Promise.all([loadRuns(), loadScore()]);
     } catch (e: any) {
       setError(e?.message ?? "Update failed");
+      throw e;
     }
   }
 
-  // API helpers for runs
+  // API helpers for runs (edit table)
   async function updateRunAPI(id: number | string, ms?: number, username?: string) {
-    const payload: any = { id: Number(id) }; // <— force number
-    if (typeof ms === "number") payload.duration_ms = Number(ms); // <— force number
+    const payload: any = { id: Number(id) };
+    if (typeof ms === "number") payload.duration_ms = Number(ms);
     if (username) payload.username = username;
 
     const res = await fetch("/api/coach/runs", {
@@ -204,7 +288,6 @@ export default function CoachPage() {
       throw new Error(j?.error ?? "Update failed");
     }
   }
-
 
   async function insertRunViaPatch(username: string, ms: number) {
     const res = await fetch("/api/coach/runs", {
@@ -239,32 +322,30 @@ export default function CoachPage() {
   const usersSorted = useMemo(() => {
     const withAvg = users.map((u) => {
       const key = u.username.trim().toLowerCase();
-      const avg = avgByUser[key]; // undefined if no runs
+      const avg = avgByUser[key];
       return { ...u, __avg: typeof avg === "number" ? avg : undefined as number | undefined };
     });
     withAvg.sort((a, b) => {
       const A = a.__avg ?? Number.POSITIVE_INFINITY;
       const B = b.__avg ?? Number.POSITIVE_INFINITY;
-      if (A !== B) return A - B; // lower avg first; undefineds go last
+      if (A !== B) return A - B;
       return a.username.localeCompare(b.username);
     });
     return withAvg;
   }, [users, avgByUser]);
 
-  /** Build TODAY scoreboard “matrix” per team: Name | Avg(today) | 1..10 (chronological) */
-  type Cell = { id?: number; ms?: number }; // id undefined => empty/new cell
+  /** Build TODAY scoreboard matrix */
+  type Cell = { id?: number; ms?: number };
   type Row = { username: string; avgTodayMs: number; cells: Cell[] };
 
   const { blueRows, whiteRows, todayTotals } = useMemo(() => {
     const { start, end } = getTZDayWindow("America/New_York");
 
-    // Filter today’s runs using NY calendar day boundaries
     const todays = runs.filter((r) => {
       const t = new Date(r.created_at).getTime();
       return t >= start.getTime() && t < end.getTime();
     });
 
-    // Index all of today's runs by team+username (lowercased)
     const byKey = new Map<string, RunRow[]>();
     for (const r of todays) {
       if (r.team !== "Blue" && r.team !== "White") continue;
@@ -273,7 +354,6 @@ export default function CoachPage() {
       byKey.get(key)!.push(r);
     }
 
-    // helper to build rows ensuring *all rostered team members appear*, not only those who ran today
     function buildTeamRows(team: "Blue" | "White"): Row[] {
       const teamRoster = users
         .filter((u) => u.team === team)
@@ -282,10 +362,7 @@ export default function CoachPage() {
 
       const rows: Row[] = [];
       for (const name of teamRoster) {
-        const lowerName = name.toLowerCase();
-        const arr = (byKey.get(`${team}|${lowerName}`) ?? []).slice();
-
-        // chronological by created_at
+        const arr = (byKey.get(`${team}|${name.toLowerCase()}`) ?? []).slice();
         arr.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
         const first10 = arr.slice(0, MAX_SPRINTS);
@@ -305,7 +382,6 @@ export default function CoachPage() {
       return rows;
     }
 
-    // Team totals (today) based on today's filtered runs
     let blueTotal = 0;
     let whiteTotal = 0;
     for (const r of todays) {
@@ -320,29 +396,40 @@ export default function CoachPage() {
     };
   }, [runs, users]);
 
-  /** Editable scoreboard cell handler:
-   *  - empty cell -> value: PATCH insert
-   *  - filled cell -> cleared: DELETE
-   *  - filled cell -> changed: PATCH update
-   */
+  // Coach daily count for stopwatch cap
+  const { myRunsToday, myNextSprint } = useMemo(() => {
+    const { start, end } = getTZDayWindow("America/New_York");
+    const isOnTeam = myTeam === "Blue" || myTeam === "White";
+    if (!myUsername || !isOnTeam) return { myRunsToday: 0, myNextSprint: 1 };
+
+    const todaysMine = runs.filter((r) => {
+      if (!r.username) return false;
+      if (r.username.toLowerCase() !== myUsername.toLowerCase()) return false;
+      if (r.team !== "Blue" && r.team !== "White") return false;
+      const t = new Date(r.created_at).getTime();
+      return t >= start.getTime() && t < end.getTime();
+    });
+
+    const first10 = todaysMine
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+      .slice(0, MAX_SPRINTS);
+
+    const count = first10.length;
+    return { myRunsToday: count, myNextSprint: Math.min(MAX_SPRINTS, count + 1) };
+  }, [runs, myUsername, myTeam]);
+
+  /** Editable scoreboard handler */
   const handleScoreboardCellBlur = useCallback(
     async (username: string, cell: Cell, newVal: string) => {
       const ms = strToMs(newVal ?? "");
-
       try {
-        // INSERT
         if (!cell.id && ms != null && ms > 0) {
           await insertRunViaPatch(username, ms);
-        }
-        // DELETE
-        else if (cell.id && (ms == null || ms <= 0 || newVal.trim() === "")) {
+        } else if (cell.id && (ms == null || ms <= 0 || newVal.trim() === "")) {
           await deleteRunAPI(cell.id);
-        }
-        // UPDATE
-        else if (cell.id && ms != null && ms > 0 && ms !== cell.ms) {
+        } else if (cell.id && ms != null && ms > 0 && ms !== cell.ms) {
           await updateRunAPI(cell.id, ms);
         }
-
         await Promise.all([loadRuns(), loadScore()]);
       } catch (e: any) {
         setError(e?.message ?? "Cell update failed");
@@ -350,6 +437,138 @@ export default function CoachPage() {
     },
     [] // stable
   );
+
+  /** ====== MAKE TEAMS (balanced) ======
+   *  - Consider players currently on Blue/White only (ignore Bench & coaches)
+   *  - Use all-time averages (avgByUser), imputing missing to mean of known
+   *  - Split into two teams with minimal total avg difference
+   *  - Keep team sizes within 1 (k vs n-k)
+   */
+  const [balancing, setBalancing] = useState(false);
+
+  function computeBalancedSplit(players: { username: string; avg: number }[]) {
+    const n = players.length;
+    if (n < 2) return { blue: players.map(p => p.username), white: [] as string[] };
+
+    // size constraint → Blue gets k, White gets n-k
+    const k = Math.floor(n / 2);
+
+    // Scale to reduce DP state (10 ms buckets)
+    const SCALE = 10;
+    const weights = players.map(p => Math.max(0, Math.round(p.avg / SCALE)));
+    const total = weights.reduce((a, b) => a + b, 0);
+
+    // dp[size] : Map<sum, { prevSum, idx }>
+    const dp: Array<Map<number, { prev: number; idx: number }>> = Array.from({ length: k + 1 }, () => new Map());
+    dp[0].set(0, { prev: -1, idx: -1 });
+
+    for (let i = 0; i < n; i++) {
+      const w = weights[i];
+      for (let size = Math.min(i + 1, k); size >= 1; size--) {
+        for (const [sum] of Array.from(dp[size - 1].entries())) {
+          const newSum = sum + w;
+          if (!dp[size].has(newSum)) {
+            dp[size].set(newSum, { prev: sum, idx: i });
+          }
+        }
+      }
+    }
+
+    // choose sum closest to half
+    const target = Math.floor(total / 2);
+    let bestSum = -1;
+    let bestDiff = Number.POSITIVE_INFINITY;
+    for (const [s] of dp[k].entries()) {
+      const d = Math.abs(target - s);
+      if (d < bestDiff) {
+        bestDiff = d;
+        bestSum = s;
+      }
+    }
+
+    // backtrack to get chosen indices for Blue
+    const chosen = new Set<number>();
+    let curSum = bestSum;
+    let size = k;
+    while (size > 0 && curSum >= 0) {
+      const node = dp[size].get(curSum)!;
+      chosen.add(node.idx);
+      curSum = node.prev;
+      size -= 1;
+    }
+
+    const blueUsernames: string[] = [];
+    const whiteUsernames: string[] = [];
+    for (let i = 0; i < n; i++) {
+      (chosen.has(i) ? blueUsernames : whiteUsernames).push(players[i].username);
+    }
+    return { blue: blueUsernames, white: whiteUsernames };
+  }
+
+  async function makeBalancedTeams() {
+    try {
+      setBalancing(true);
+      setError(null);
+
+      // collect candidates: role=player AND team in Blue/White
+      const candidates = users
+        .filter(u => u.role === "player" && (u.team === "Blue" || u.team === "White"))
+        .map(u => u.username);
+
+      if (candidates.length < 2) {
+        setError("Need at least 2 players on Blue/White to make teams.");
+        return;
+      }
+
+      // build averages (impute missing with mean of known)
+      const avgs: { username: string; avg?: number }[] = candidates.map(name => {
+        const key = name.trim().toLowerCase();
+        return { username: name, avg: avgByUser[key] };
+      });
+      const known = avgs.filter(a => typeof a.avg === "number").map(a => a.avg!);
+      const mean = known.length ? Math.round(known.reduce((s, v) => s + v, 0) / known.length) : 0;
+      const playersWithAvg = avgs.map(a => ({ username: a.username, avg: typeof a.avg === "number" ? a.avg! : mean }));
+
+      // compute split
+      const split = computeBalancedSplit(playersWithAvg);
+
+      // optional confirmation with quick preview numbers
+      const blueSum = playersWithAvg
+        .filter(p => split.blue.includes(p.username))
+        .reduce((s, p) => s + p.avg, 0);
+      const whiteSum = playersWithAvg
+        .filter(p => split.white.includes(p.username))
+        .reduce((s, p) => s + p.avg, 0);
+
+      const ok = window.confirm(
+        `Rebalance teams?\n\nBlue (${split.blue.length}) total avg: ${msToStr(blueSum)}\nWhite (${split.white.length}) total avg: ${msToStr(whiteSum)}\nΔ = ${msToStr(Math.abs(blueSum - whiteSum))}`
+      );
+      if (!ok) return;
+
+      // apply updates (Bench stays untouched)
+      const updates: Promise<any>[] = [];
+      for (const name of split.blue) {
+        const u = users.find(x => x.username === name);
+        if (u?.team !== "Blue") {
+          updates.push(updateUser(name, { team: "Blue" }));
+        }
+      }
+      for (const name of split.white) {
+        const u = users.find(x => x.username === name);
+        if (u?.team !== "White") {
+          updates.push(updateUser(name, { team: "White" }));
+        }
+      }
+      await Promise.all(updates);
+
+      // refresh boards
+      await Promise.all([loadRuns(), loadScore(), loadUsers()]);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to make teams.");
+    } finally {
+      setBalancing(false);
+    }
+  }
 
   /** Editable scoreboard table */
   function EditableTeamBoard({
@@ -368,7 +587,7 @@ export default function CoachPage() {
         <div className="flex items-baseline justify-between mb-4">
           <h2 className="font-semibold text-lg">{title}</h2>
           <div className="text-base">
-            Team Total (today): {" "}
+            Team Total (today):{" "}
             <span className={`font-mono ${colorClass}`}>{msToStr(totalMs)}</span>
           </div>
         </div>
@@ -415,7 +634,6 @@ export default function CoachPage() {
                             if (e.key === "Enter") {
                               (e.target as HTMLInputElement).blur();
                             } else if (e.key === "Escape") {
-                              // revert
                               const input = e.target as HTMLInputElement;
                               input.value = typeof c.ms === "number" ? msToStr(c.ms) : "";
                               input.blur();
@@ -437,6 +655,9 @@ export default function CoachPage() {
       </div>
     );
   }
+
+  const showCoachStopwatch = myTeam === "Blue" || myTeam === "White";
+  const finishedAll = myRunsToday >= MAX_SPRINTS;
 
   return (
     <div className="min-h-screen p-6 space-y-8 bg-gray-900 text-gray-100">
@@ -461,21 +682,84 @@ export default function CoachPage() {
 
       {error && <div className="text-red-400 text-sm">{error}</div>}
 
+      {/* COACH STOPWATCH */}
+      {showCoachStopwatch && (
+        <section className="p-5 rounded-xl border border-gray-700 bg-gray-800 flex flex-col items-center">
+          <div className="text-lg mb-1">
+            Logged in as <span className="font-semibold text-blue-400">{myUsername || "—"}</span>
+            {myTeam && <span className="text-gray-300 ml-1">({myTeam})</span>}
+          </div>
+          <div className="text-6xl font-mono text-center mb-1">{msToStr(displayMs)}</div>
+          <div className="text-xs text-gray-300 mb-5">
+            {finishedAll ? "Finished (10/10)" : `Next sprint: ${myNextSprint}/10`}
+          </div>
+
+          {!isRunning ? (
+            <button
+              onClick={start}
+              disabled={finishedAll}
+              className={`w-56 h-56 flex items-center justify-center rounded-full text-white text-3xl font-extrabold shadow-2xl transition-transform transform active:scale-95 ${
+                finishedAll
+                  ? "bg-gray-600 cursor-not-allowed"
+                  : "bg-blue-600 hover:bg-blue-500 hover:shadow-blue-500/40"
+              }`}
+            >
+              Start
+            </button>
+          ) : (
+            <button
+              onClick={stop}
+              className="w-56 h-56 flex items-center justify-center rounded-full bg-red-600 hover:bg-red-500 text-white text-3xl font-extrabold shadow-2xl transition-transform transform active:scale-95 hover:shadow-red-500/40"
+            >
+              Stop
+            </button>
+          )}
+
+          <div className="flex justify-center gap-24 mt-8">
+            <button
+              onClick={reset}
+              className="px-6 py-3 rounded border border-gray-600 hover:bg-gray-700 text-lg"
+            >
+              Reset
+            </button>
+            <button
+              onClick={submitRunFromStopwatch}
+              className="px-6 py-3 rounded bg-green-600 hover:bg-green-500 text-white text-lg disabled:opacity-50"
+              disabled={isRunning || displayMs === 0 || finishedAll}
+            >
+              Submit
+            </button>
+          </div>
+        </section>
+      )}
+
       {/* USERS (collapsible) */}
       <section className="space-y-3">
-        <button
-          onClick={() => setUsersOpen((v) => !v)}
-          className="w-full flex items-center justify-between px-3 py-2 rounded-lg border border-gray-700 bg-gray-800 hover:bg-gray-700"
-        >
-          <span className="text-xl font-semibold">Users</span>
-          <svg
-            className={`h-5 w-5 transition-transform ${usersOpen ? "rotate-180" : ""}`}
-            viewBox="0 0 20 20"
-            fill="currentColor"
+        <div className="w-full flex items-center justify-between">
+          <button
+            onClick={() => setUsersOpen((v) => !v)}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-700 bg-gray-800 hover:bg-gray-700"
           >
-            <path d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 011.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" />
-          </svg>
-        </button>
+            <span className="text-xl font-semibold">Users</span>
+            <svg
+              className={`h-5 w-5 transition-transform ${usersOpen ? "rotate-180" : ""}`}
+              viewBox="0 0 20 20"
+              fill="currentColor"
+            >
+              <path d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 011.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" />
+            </svg>
+          </button>
+
+          {/* Make teams button */}
+          <button
+            onClick={makeBalancedTeams}
+            disabled={balancing || uLoading}
+            className="px-3 py-2 rounded-lg border border-blue-700 text-blue-200 bg-blue-900/30 hover:bg-blue-900/50 disabled:opacity-50"
+            title="Reassign Blue/White players to minimize team avg-time delta"
+          >
+            {balancing ? "Making teams…" : "Make teams (balanced)"}
+          </button>
+        </div>
 
         <div
           className={`overflow-hidden transition-[max-height,opacity] duration-300 ease-in-out ${
