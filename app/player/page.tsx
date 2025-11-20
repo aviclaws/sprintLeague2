@@ -37,6 +37,10 @@ export default function PlayerPage() {
   const rafRef = useRef<number | null>(null);
   const runningRef = useRef(false);
 
+  // touch de-dupe (avoid touchstart + synthetic click double-trigger)
+  const lastTouchTsRef = useRef<number>(0);
+  const TOUCH_CLICK_GAP = 350; // ms
+
   // player info + data
   const [username, setUsername] = useState<string>("");
   const [team, setTeam] = useState<Team>(null);
@@ -328,6 +332,33 @@ export default function PlayerPage() {
   const totalsBlueClass = "text-blue-400";
   const totalsWhiteClass = "text-gray-100";
 
+  // --- Touch helpers that mirror click handlers and prevent scroll ---
+  const handleStartTouch: React.TouchEventHandler<HTMLButtonElement> = (e) => {
+    // Stop the browser from interpreting as scroll/drag
+    e.preventDefault();
+    lastTouchTsRef.current = performance.now();
+    if (!finishedAll) start();
+  };
+
+  const handleStopTouch: React.TouchEventHandler<HTMLButtonElement> = (e) => {
+    e.preventDefault();
+    lastTouchTsRef.current = performance.now();
+    stop();
+  };
+
+  // Click handlers that ignore the synthetic click that follows a touch
+  const handleStartClick: React.MouseEventHandler<HTMLButtonElement> = () => {
+    const now = performance.now();
+    if (now - lastTouchTsRef.current < TOUCH_CLICK_GAP) return; // ignore ghost click
+    if (!finishedAll) start();
+  };
+
+  const handleStopClick: React.MouseEventHandler<HTMLButtonElement> = () => {
+    const now = performance.now();
+    if (now - lastTouchTsRef.current < TOUCH_CLICK_GAP) return;
+    stop();
+  };
+
   return (
     <div className="min-h-screen p-4 space-y-5 bg-gray-900 text-gray-100">
       {/* Header (kept minimal for phone) */}
@@ -355,7 +386,6 @@ export default function PlayerPage() {
         </form>
       </header>
 
-
       {err && <div className="text-red-400 text-sm">{err}</div>}
 
       {/* 1) Stopwatch */}
@@ -368,20 +398,30 @@ export default function PlayerPage() {
         {/* Big circular Start/Stop button */}
         {!isRunning ? (
           <button
-            onClick={start}
+            type="button"
+            onTouchStart={handleStartTouch}
+            onClick={handleStartClick}
             disabled={finishedAll}
-            className={`w-56 h-56 flex items-center justify-center rounded-full text-white text-3xl font-extrabold shadow-2xl transition-transform transform active:scale-95 ${
+            // Prefer taps; don't start scroll/zoom on this element
+            style={{ touchAction: "manipulation" }}
+            className={`w-56 h-56 flex items-center justify-center rounded-full text-white text-3xl font-extrabold shadow-2xl transition-transform transform active:scale-95 select-none ${
               finishedAll
                 ? "bg-gray-600 cursor-not-allowed"
                 : "bg-blue-600 hover:bg-blue-500 hover:shadow-blue-500/40"
             }`}
+            aria-pressed="false"
+            aria-disabled={finishedAll}
           >
             Start
           </button>
         ) : (
           <button
-            onClick={stop}
-            className="w-56 h-56 flex items-center justify-center rounded-full bg-red-600 hover:bg-red-500 text-white text-3xl font-extrabold shadow-2xl transition-transform transform active:scale-95 hover:shadow-red-500/40"
+            type="button"
+            onTouchStart={handleStopTouch}
+            onClick={handleStopClick}
+            style={{ touchAction: "manipulation" }}
+            className="w-56 h-56 flex items-center justify-center rounded-full bg-red-600 hover:bg-red-500 text-white text-3xl font-extrabold shadow-2xl transition-transform transform active:scale-95 hover:shadow-red-500/40 select-none"
+            aria-pressed="true"
           >
             Stop
           </button>
