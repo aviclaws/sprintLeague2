@@ -83,6 +83,10 @@ export default function CoachPage() {
   const rafRef = useRef<number | null>(null);
   const runningRef = useRef(false);
 
+  // Touch de-dupe for ghost clicks
+  const lastTouchTsRef = useRef<number>(0);
+  const TOUCH_CLICK_GAP = 350; // ms
+
   function tick() {
     if (!runningRef.current || startRef.current == null) return;
     const now = performance.now();
@@ -438,12 +442,7 @@ export default function CoachPage() {
     [] // stable
   );
 
-  /** ====== MAKE TEAMS (balanced) ======
-   *  - Consider players currently on Blue/White only (ignore Bench & coaches)
-   *  - Use all-time averages (avgByUser), imputing missing to mean of known
-   *  - Split into two teams with minimal total avg difference
-   *  - Keep team sizes within 1 (k vs n-k)
-   */
+  /** ====== MAKE TEAMS (balanced) ====== */
   const [balancing, setBalancing] = useState(false);
 
   function computeBalancedSplit(players: { username: string; avg: number }[]) {
@@ -659,6 +658,28 @@ export default function CoachPage() {
   const showCoachStopwatch = myTeam === "Blue" || myTeam === "White";
   const finishedAll = myRunsToday >= MAX_SPRINTS;
 
+  // --- Touch helpers mirroring click handlers with ghost-click de-dupe ---
+  const handleStartTouch: React.TouchEventHandler<HTMLButtonElement> = (e) => {
+    e.preventDefault();
+    lastTouchTsRef.current = performance.now();
+    if (!finishedAll) start();
+  };
+  const handleStopTouch: React.TouchEventHandler<HTMLButtonElement> = (e) => {
+    e.preventDefault();
+    lastTouchTsRef.current = performance.now();
+    stop();
+  };
+  const handleStartClick: React.MouseEventHandler<HTMLButtonElement> = () => {
+    const now = performance.now();
+    if (now - lastTouchTsRef.current < TOUCH_CLICK_GAP) return;
+    if (!finishedAll) start();
+  };
+  const handleStopClick: React.MouseEventHandler<HTMLButtonElement> = () => {
+    const now = performance.now();
+    if (now - lastTouchTsRef.current < TOUCH_CLICK_GAP) return;
+    stop();
+  };
+
   return (
     <div className="min-h-screen p-6 space-y-8 bg-gray-900 text-gray-100">
       <header className="flex items-center justify-between">
@@ -696,20 +717,29 @@ export default function CoachPage() {
 
           {!isRunning ? (
             <button
-              onClick={start}
+              type="button"
+              onTouchStart={handleStartTouch}
+              onClick={handleStartClick}
               disabled={finishedAll}
-              className={`w-56 h-56 flex items-center justify-center rounded-full text-white text-3xl font-extrabold shadow-2xl transition-transform transform active:scale-95 ${
+              style={{ touchAction: "manipulation" }} // prefer taps; don't scroll/zoom
+              className={`w-56 h-56 flex items-center justify-center rounded-full text-white text-3xl font-extrabold shadow-2xl transition-transform transform active:scale-95 select-none ${
                 finishedAll
                   ? "bg-gray-600 cursor-not-allowed"
                   : "bg-blue-600 hover:bg-blue-500 hover:shadow-blue-500/40"
               }`}
+              aria-pressed="false"
+              aria-disabled={finishedAll}
             >
               Start
             </button>
           ) : (
             <button
-              onClick={stop}
-              className="w-56 h-56 flex items-center justify-center rounded-full bg-red-600 hover:bg-red-500 text-white text-3xl font-extrabold shadow-2xl transition-transform transform active:scale-95 hover:shadow-red-500/40"
+              type="button"
+              onTouchStart={handleStopTouch}
+              onClick={handleStopClick}
+              style={{ touchAction: "manipulation" }}
+              className="w-56 h-56 flex items-center justify-center rounded-full bg-red-600 hover:bg-red-500 text-white text-3xl font-extrabold shadow-2xl transition-transform transform active:scale-95 hover:shadow-red-500/40 select-none"
+              aria-pressed="true"
             >
               Stop
             </button>
