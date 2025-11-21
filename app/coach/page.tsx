@@ -95,9 +95,15 @@ export default function CoachPage() {
   }
   function start() {
     if (runningRef.current) return;
-    startRef.current = performance.now();
+
+    // Keep whatever was already elapsed (displayMs) and continue from there
+    const alreadyElapsed = displayMs || 0;
+    startRef.current = performance.now() - alreadyElapsed;
+
+    // clear end markers for this new running segment
     stopRef.current = null;
     finalMsRef.current = null;
+
     runningRef.current = true;
     setIsRunning(true);
     rafRef.current = requestAnimationFrame(tick);
