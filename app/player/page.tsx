@@ -32,8 +32,8 @@ export default function PlayerPage() {
   const [displayMs, setDisplayMs] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const startRef = useRef<number | null>(null);
-  const stopRef = useRef<number | null>(null);       // captured when Stop is pressed
-  const finalMsRef = useRef<number | null>(null);     // frozen duration at Stop
+  const stopRef = useRef<number | null>(null); // captured when Stop is pressed
+  const finalMsRef = useRef<number | null>(null); // frozen duration at Stop
   const rafRef = useRef<number | null>(null);
   const runningRef = useRef(false);
 
@@ -48,6 +48,9 @@ export default function PlayerPage() {
   const [score, setScore] = useState<{ blue: number; white: number }>({ blue: 0, white: 0 });
   const [leaders, setLeaders] = useState<LeaderRow[]>([]);
   const [err, setErr] = useState<string | null>(null);
+
+  // NEW: collapsible for everything under the stopwatch
+  const [showBoards, setShowBoards] = useState(false);
 
   async function refreshBoards() {
     try {
@@ -142,11 +145,11 @@ export default function PlayerPage() {
       rafRef.current = null;
     }
     if (startRef.current != null) {
-      const now = performance.now();                        // exact stop instant
-      stopRef.current = now;                                // store stop ts
+      const now = performance.now(); // exact stop instant
+      stopRef.current = now; // store stop ts
       const dur = Math.max(0, Math.floor(now - startRef.current));
-      finalMsRef.current = dur;                             // freeze duration
-      setDisplayMs(dur);                                    // show frozen time
+      finalMsRef.current = dur; // freeze duration
+      setDisplayMs(dur); // show frozen time
     }
   }
 
@@ -207,19 +210,26 @@ export default function PlayerPage() {
 
     // logged-in user's run counts & next sprint number
     const myRuns =
-      (team === "Blue" ? blueMap.get(username) : team === "White" ? whiteMap.get(username) : undefined) || [];
+      (team === "Blue" ? blueMap.get(username) : team === "White" ? whiteMap.get(username) : undefined) ||
+      [];
     const myNextSprint = Math.min(MAX_SPRINTS, (myRuns?.length || 0) + 1);
 
     // pick which table shows first based on user's team
-    const myTeamFirstRows =
-      team === "Blue" ? blueRows : team === "White" ? whiteRows : blueRows;
-    const otherTeamRows =
-      team === "Blue" ? whiteRows : team === "White" ? blueRows : whiteRows;
+    const myTeamFirstRows = team === "Blue" ? blueRows : team === "White" ? whiteRows : blueRows;
+    const otherTeamRows = team === "Blue" ? whiteRows : team === "White" ? blueRows : whiteRows;
 
     const myTeamTitle =
-      team === "Blue" ? "Blue Team (today)" : team === "White" ? "White Team (today)" : "Blue Team (today)";
+      team === "Blue"
+        ? "Blue Team (today)"
+        : team === "White"
+        ? "White Team (today)"
+        : "Blue Team (today)";
     const otherTeamTitle =
-      team === "Blue" ? "White Team (today)" : team === "White" ? "Blue Team (today)" : "White Team (today)";
+      team === "Blue"
+        ? "White Team (today)"
+        : team === "White"
+        ? "Blue Team (today)"
+        : "White Team (today)";
 
     return {
       blueRows,
@@ -380,8 +390,7 @@ export default function PlayerPage() {
               </div>
               {avgTime != null && (
                 <div className="text-gray-300 text-sm mt-1">
-                  Avg (all-time):{" "}
-                  <span className="font-mono">{msToStr(avgTime)}</span>
+                  Avg (all-time): <span className="font-mono">{msToStr(avgTime)}</span>
                 </div>
               )}
             </div>
@@ -451,39 +460,89 @@ export default function PlayerPage() {
         </div>
       </section>
 
-      {/* 2) White vs Blue team total time */}
-      <section className="p-5 rounded-xl border border-gray-700 bg-gray-800">
-        <h2 className="font-semibold text-lg mb-3">Team Totals (today)</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-center">
-          <div className="p-3 rounded-lg bg-gray-900">
-            <div className="text-sm text-gray-300 mb-1">White</div>
-            <div className={`text-3xl font-mono ${totalsWhiteClass}`}>{msToStr(score.white)}</div>
-          </div>
-          <div className="p-3 rounded-lg bg-gray-900">
-            <div className="text-sm text-gray-300 mb-1">Blue</div>
-            <div className={`text-3xl font-mono ${totalsBlueClass}`}>{msToStr(score.blue)}</div>
-          </div>
-        </div>
-      </section>
+      {/* Collapsible wrapper for everything under the stopwatch */}
+      <section className="p-4 rounded-xl border border-gray-700 bg-gray-800">
+        <button
+          type="button"
+          onClick={() => setShowBoards((prev) => !prev)}
+          className="w-full flex items-center justify-between gap-2 text-left"
+        >
+          <span className="font-semibold text-lg">Scores &amp; Leaderboards</span>
+          <span
+            className={`transition-transform duration-200 ${
+              showBoards ? "rotate-90" : ""
+            }`}
+          >
+            ▶
+          </span>
+        </button>
 
-      {/* 3) Logged-in user's team scoreboard */}
-      <section>
-        <TeamBoard
-          title={myTeamTitle}
-          totalMs={team === "Blue" ? score.blue : team === "White" ? score.white : score.blue}
-          rows={myTeamFirstRows}
-          colorClass={team === "Blue" ? "text-blue-400" : team === "White" ? "text-gray-100" : "text-blue-400"}
-        />
-      </section>
+        {showBoards && (
+          <div className="mt-4 space-y-5">
+            {/* 2) White vs Blue team total time */}
+            <section className="p-5 rounded-xl border border-gray-700 bg-gray-900">
+              <h2 className="font-semibold text-lg mb-3">Team Totals (today)</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-center">
+                <div className="p-3 rounded-lg bg-gray-800">
+                  <div className="text-sm text-gray-300 mb-1">White</div>
+                  <div className={`text-3xl font-mono ${totalsWhiteClass}`}>
+                    {msToStr(score.white)}
+                  </div>
+                </div>
+                <div className="p-3 rounded-lg bg-gray-800">
+                  <div className="text-sm text-gray-300 mb-1">Blue</div>
+                  <div className={`text-3xl font-mono ${totalsBlueClass}`}>
+                    {msToStr(score.blue)}
+                  </div>
+                </div>
+              </div>
+            </section>
 
-      {/* 4) Other team's scoreboard */}
-      <section>
-        <TeamBoard
-          title={otherTeamTitle}
-          totalMs={team === "Blue" ? score.white : team === "White" ? score.blue : score.white}
-          rows={otherTeamRows}
-          colorClass={team === "Blue" ? "text-gray-100" : team === "White" ? "text-blue-400" : "text-gray-100"}
-        />
+            {/* 3) Logged-in user's team scoreboard */}
+            <section>
+              <TeamBoard
+                title={myTeamTitle}
+                totalMs={
+                  team === "Blue"
+                    ? score.blue
+                    : team === "White"
+                    ? score.white
+                    : score.blue
+                }
+                rows={myTeamFirstRows}
+                colorClass={
+                  team === "Blue"
+                    ? "text-blue-400"
+                    : team === "White"
+                    ? "text-gray-100"
+                    : "text-blue-400"
+                }
+              />
+            </section>
+
+            {/* 4) Other team's scoreboard */}
+            <section>
+              <TeamBoard
+                title={otherTeamTitle}
+                totalMs={
+                  team === "Blue"
+                    ? score.white
+                    : team === "White"
+                    ? score.blue
+                    : score.white
+                }
+                rows={otherTeamRows}
+                colorClass={
+                  team === "Blue"
+                    ? "text-gray-100"
+                    : team === "White"
+                    ? "text-blue-400"
+                    : "text-gray-100"
+                }
+              />
+            </section>
+          </div>
+        )}
       </section>
     </div>
   );
