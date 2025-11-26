@@ -404,7 +404,8 @@ export default function PlayerPage() {
       {err && <div className="text-red-400 text-sm">{err}</div>}
 
       {/* 1) Stopwatch */}
-      <section className="p-5 rounded-xl border border-gray-700 bg-gray-800 flex flex-col items-center">
+      <section className="px-0 py-5 rounded-xl border border-gray-700 bg-gray-800 flex flex-col">
+
         <div className="text-6xl font-mono text-center mb-1">{msToStr(displayMs)}</div>
         <div className="text-xs text-gray-300 mb-5">
           {finishedAll ? "Finished (10/10)" : `Next sprint: ${myNextSprint}/10`}
@@ -419,7 +420,7 @@ export default function PlayerPage() {
             disabled={finishedAll}
             // Prefer taps; don't start scroll/zoom on this element
             style={{ touchAction: "manipulation" }}
-            className={`w-56 h-56 flex items-center justify-center rounded-full text-white text-3xl font-extrabold shadow-2xl transition-transform transform active:scale-95 select-none ${
+            className={`w-full h-56 flex items-center justify-center rounded-2xl text-white text-3xl font-extrabold shadow-2xl transition-transform transform active:scale-95 select-none ${
               finishedAll
                 ? "bg-gray-600 cursor-not-allowed"
                 : "bg-blue-600 hover:bg-blue-500 hover:shadow-blue-500/40"
@@ -435,7 +436,7 @@ export default function PlayerPage() {
             onTouchStart={handleStopTouch}
             onClick={handleStopClick}
             style={{ touchAction: "manipulation" }}
-            className="w-56 h-56 flex items-center justify-center rounded-full bg-red-600 hover:bg-red-500 text-white text-3xl font-extrabold shadow-2xl transition-transform transform active:scale-95 hover:shadow-red-500/40 select-none"
+            className="w-full h-56 flex items-center justify-center rounded-2xl bg-red-600 hover:bg-red-500 text-white text-3xl font-extrabold shadow-2xl transition-transform transform active:scale-95 hover:shadow-red-500/40 select-none"
             aria-pressed="true"
           >
             Stop
